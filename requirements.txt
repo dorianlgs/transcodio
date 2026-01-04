@@ -1,0 +1,23 @@
+# Core Framework
+modal>=0.63.0
+fastapi>=0.109.0
+uvicorn>=0.27.0
+
+# ML/Audio
+openai-whisper>=20231117
+torch>=2.1.0
+torchaudio>=2.1.0
+numpy>=1.24.0
+
+# Audio Processing
+ffmpeg-python>=0.2.0
+pydub>=0.25.1
+
+# API/Streaming
+python-multipart>=0.0.6
+sse-starlette>=1.8.2
+aiofiles>=23.2.1
+
+# Utilities
+pydantic>=2.5.0
+python-dotenv>=1.0.0
