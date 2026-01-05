@@ -209,3 +209,5 @@ __marimo__/
 # Transcodio temporary files
 temp/
 *.audio
+
+nul
