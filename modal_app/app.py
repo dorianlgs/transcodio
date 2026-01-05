@@ -5,14 +5,13 @@ import json
 from typing import Iterator, Dict, Any
 
 import modal
-
-from .image import whisper_image
 import sys
 from pathlib import Path
 
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import config
+from modal_app.image import whisper_image
 
 # Create Modal app
 app = modal.App(config.MODAL_APP_NAME)
@@ -23,8 +22,8 @@ volume = modal.Volume.from_name(config.MODAL_VOLUME_NAME, create_if_missing=True
 
 @app.cls(
     image=whisper_image,
-    gpu=modal.gpu.L4(count=config.MODAL_GPU_COUNT),
-    container_idle_timeout=config.MODAL_CONTAINER_IDLE_TIMEOUT,
+    gpu="L4",
+    scaledown_window=config.MODAL_CONTAINER_IDLE_TIMEOUT,
     timeout=config.MODAL_TIMEOUT,
     memory=config.MODAL_MEMORY_MB,
     volumes={"/models": volume},
