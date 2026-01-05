@@ -75,7 +75,7 @@ def get_audio_duration(audio_bytes: bytes) -> float:
         AudioValidationError: If unable to read audio file
     """
     try:
-        from pydub import AudioSegment
+        import ffmpeg
         import tempfile
         import os
 
@@ -85,9 +85,9 @@ def get_audio_duration(audio_bytes: bytes) -> float:
             tmp_path = tmp_file.name
 
         try:
-            # Load audio and get duration
-            audio = AudioSegment.from_file(tmp_path)
-            duration = len(audio) / 1000.0  # Convert milliseconds to seconds
+            # Get duration using ffprobe
+            probe = ffmpeg.probe(tmp_path)
+            duration = float(probe['format']['duration'])
             return duration
         finally:
             # Cleanup
