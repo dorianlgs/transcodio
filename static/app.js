@@ -129,38 +129,80 @@ async function transcribeWithStreaming(formData) {
     currentTranscription = '';
 
     try {
+        console.log('Sending transcription request...');
         const response = await fetch('/api/transcribe/stream', {
             method: 'POST',
             body: formData,
         });
+
+        console.log('Response received:', response.status);
+        console.log('Response body:', response.body);
+        console.log('Response headers:', response.headers);
 
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.detail || 'Transcription failed');
         }
 
-        // Show results section
-        showSection('results');
+        // Keep processing section visible during streaming
+        showSection('processing');
+        processingStatus.textContent = 'Transcribing...';
+
+        console.log('About to get reader...');
+
+        if (!response.body) {
+            throw new Error('Response body is null');
+        }
 
         // Process SSE stream
         const reader = response.body.getReader();
+        console.log('Got reader:', reader);
         const decoder = new TextDecoder();
         let buffer = '';
+        let eventCount = 0;
+
+        console.log('Starting to read stream...');
 
         while (true) {
+            console.log('Reading next chunk...');
             const { done, value } = await reader.read();
+            console.log('Read result - done:', done, 'value length:', value?.length);
 
-            if (done) break;
+            if (done) {
+                console.log('Stream done. Total events:', eventCount);
+                break;
+            }
 
             // Decode chunk
-            buffer += decoder.decode(value, { stream: true });
+            const chunk = decoder.decode(value, { stream: true });
+            console.log('Received chunk (first 200 chars):', chunk.substring(0, 200));
 
-            // Process complete events
-            const events = buffer.split('\n\n');
-            buffer = events.pop(); // Keep incomplete event in buffer
+            // Debug: Show actual bytes
+            console.log('Chunk char codes at positions 40-50:',
+                [...chunk.substring(40, 50)].map(c => c.charCodeAt(0)));
 
-            for (const eventText of events) {
-                if (!eventText.trim()) continue;
+            buffer += chunk;
+
+            // Process complete events (SSE format: event ends with double newline)
+            // Normalize line endings first
+            const normalizedBuffer = buffer.replace(/\r\n/g, '\n');
+            const eventStrings = normalizedBuffer.split('\n\n');
+            console.log('Split into', eventStrings.length, 'parts');
+
+            // Last element might be incomplete, keep in buffer
+            buffer = eventStrings[eventStrings.length - 1];
+            console.log('Keeping last part in buffer, will process', eventStrings.length - 1, 'events');
+
+            // Process all complete events (all except last)
+            for (let i = 0; i < eventStrings.length - 1; i++) {
+                const eventText = eventStrings[i];
+                console.log('Event', i, ':', eventText.substring(0, 50), '...');
+                if (!eventText.trim()) {
+                    console.log('Skipping empty event');
+                    continue;
+                }
+
+                console.log('Processing event text:', eventText.substring(0, 100));
 
                 const lines = eventText.split('\n');
                 let eventType = 'message';
@@ -175,10 +217,14 @@ async function transcribeWithStreaming(formData) {
                 }
 
                 if (eventData) {
+                    eventCount++;
+                    console.log('Event #' + eventCount + ':', eventType, eventData.substring(0, 50));
                     handleStreamEvent(eventType, JSON.parse(eventData));
                 }
             }
         }
+
+        console.log('Stream processing complete');
 
     } catch (error) {
         console.error('Streaming error:', error);
@@ -189,6 +235,7 @@ async function transcribeWithStreaming(formData) {
 
 // Handle Stream Events
 function handleStreamEvent(eventType, data) {
+    console.log('Handling event:', eventType, data);
     switch (eventType) {
         case 'metadata':
             // Update metadata
@@ -200,10 +247,12 @@ function handleStreamEvent(eventType, data) {
             }
             processingStatus.textContent = 'Transcribing audio...';
             progressFill.style.width = '40%';
+            console.log('Metadata updated');
             break;
 
         case 'progress':
             // Add segment
+            console.log('Adding segment:', data.text);
             addSegment(data);
             // Update progress (estimate based on time)
             const progress = Math.min(90, 40 + (data.end / 600) * 50);
@@ -212,13 +261,17 @@ function handleStreamEvent(eventType, data) {
 
         case 'complete':
             // Set final text
+            console.log('Transcription complete, showing results');
             currentTranscription = data.text;
             fullText.textContent = data.text;
             progressFill.style.width = '100%';
+            // Show results section now
+            showSection('results');
             showToast('Transcription completed!', 'success');
             break;
 
         case 'error':
+            console.error('Stream error:', data.error);
             showToast(`Error: ${data.error}`, 'error');
             showSection('upload');
             break;

@@ -211,3 +211,10 @@ temp/
 *.audio
 
 nul
+
+# Audio test files
+*.ogg
+*.wav
+*.mp3
+*.m4a
+*.flac

@@ -102,8 +102,9 @@ async def transcribe_audio(
         try:
             import modal
 
-            # Lookup the deployed function
-            transcribe_func = modal.Function.lookup(config.MODAL_APP_NAME, "WhisperModel.transcribe")
+            # Lookup the deployed class and method
+            WhisperModel = modal.Cls.from_name(config.MODAL_APP_NAME, "WhisperModel")
+            model = WhisperModel()
         except Exception as e:
             raise HTTPException(
                 status_code=503,
@@ -112,7 +113,7 @@ async def transcribe_audio(
 
         # Call Modal transcription
         try:
-            result = transcribe_func.remote(preprocessed_bytes)
+            result = model.transcribe.remote(preprocessed_bytes)
             result["duration"] = duration
             return TranscriptionResponse(**result)
         except Exception as e:
@@ -167,8 +168,9 @@ async def transcribe_audio_stream(
             import modal
             import json
 
-            # Lookup the deployed streaming function
-            transcribe_stream_func = modal.Function.lookup(config.MODAL_APP_NAME, "WhisperModel.transcribe_stream")
+            # Lookup the deployed class
+            WhisperModel = modal.Cls.from_name(config.MODAL_APP_NAME, "WhisperModel")
+            model = WhisperModel()
         except Exception as e:
             raise HTTPException(
                 status_code=503,
@@ -178,12 +180,25 @@ async def transcribe_audio_stream(
         # Create async generator for streaming
         async def event_generator():
             try:
-                # Call Modal streaming transcription
-                for segment_json in transcribe_stream_func.remote_gen(preprocessed_bytes):
-                    # Parse and yield as SSE event
+                import asyncio
+                print("Starting stream generation...")
+                # Call Modal streaming transcription in thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
 
+                def sync_generator():
+                    for segment_json in model.transcribe_stream.remote_gen(preprocessed_bytes):
+                        yield segment_json
+
+                # Process synchronous generator in async context
+                for segment_json in sync_generator():
+                    # Parse and yield as SSE event
+                    print(f"Received segment: {segment_json[:100] if len(segment_json) > 100 else segment_json}...")
                     segment_data = json.loads(segment_json)
                     event_type = segment_data.get("type", "unknown")
+                    print(f"Event type: {event_type}")
+
+                    # Yield control to event loop
+                    await asyncio.sleep(0)
 
                     if event_type == "metadata":
                         yield {

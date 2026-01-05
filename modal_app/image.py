@@ -1,6 +1,7 @@
 """Modal container image definition with all dependencies."""
 
 import modal
+from pathlib import Path
 
 # Create the container image with all required dependencies
 whisper_image = (
@@ -17,5 +18,10 @@ whisper_image = (
         "torchaudio>=2.1.0",
         "ffmpeg-python>=0.2.0",
         "numpy>=1.24.0",
+    )
+    # Add config file to the image
+    .add_local_file(
+        str(Path(__file__).parent.parent / "config.py"),
+        "/root/config.py"
     )
 )
