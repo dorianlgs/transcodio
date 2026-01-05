@@ -117,12 +117,13 @@ class WhisperModel:
                 os.remove(tmp_path)
 
     @modal.method()
-    def transcribe_stream(self, audio_bytes: bytes) -> Iterator[str]:
+    def transcribe_stream(self, audio_bytes: bytes, actual_duration: float = 0.0) -> Iterator[str]:
         """
         Transcribe audio file and yield segments as they complete.
 
         Args:
             audio_bytes: Raw audio file bytes
+            actual_duration: Actual duration of audio in seconds (from ffmpeg)
 
         Yields:
             JSON strings with segment data
@@ -145,10 +146,14 @@ class WhisperModel:
             )
 
             # Yield metadata first
+            # Use actual_duration if provided, otherwise fallback to Whisper's last segment end time
+            duration = actual_duration if actual_duration > 0 else (
+                result.get("segments", [{}])[-1].get("end", 0) if result.get("segments") else 0
+            )
             yield json.dumps({
                 "type": "metadata",
                 "language": result.get("language", "unknown"),
-                "duration": result.get("segments", [{}])[-1].get("end", 0) if result.get("segments") else 0,
+                "duration": duration,
             })
 
             # Yield each segment as it's processed

@@ -186,7 +186,7 @@ async def transcribe_audio_stream(
                 loop = asyncio.get_event_loop()
 
                 def sync_generator():
-                    for segment_json in model.transcribe_stream.remote_gen(preprocessed_bytes):
+                    for segment_json in model.transcribe_stream.remote_gen(preprocessed_bytes, duration):
                         yield segment_json
 
                 # Process synchronous generator in async context
