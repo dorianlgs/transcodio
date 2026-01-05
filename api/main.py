@@ -98,13 +98,12 @@ async def transcribe_audio(
         except AudioValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        # Import Modal app
+        # Import Modal and lookup function
         try:
             import modal
 
-            # Look up the deployed Modal app
-            modal_app = modal.App.lookup(config.MODAL_APP_NAME, create_if_missing=False)
-            WhisperModel = modal_app.cls["WhisperModel"]
+            # Lookup the deployed function
+            transcribe_func = modal.Function.lookup(config.MODAL_APP_NAME, "WhisperModel.transcribe")
         except Exception as e:
             raise HTTPException(
                 status_code=503,
@@ -113,7 +112,7 @@ async def transcribe_audio(
 
         # Call Modal transcription
         try:
-            result = WhisperModel().transcribe.remote(preprocessed_bytes)
+            result = transcribe_func.remote(preprocessed_bytes)
             result["duration"] = duration
             return TranscriptionResponse(**result)
         except Exception as e:
@@ -163,13 +162,13 @@ async def transcribe_audio_stream(
         except AudioValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        # Import Modal app
+        # Import Modal and lookup function
         try:
             import modal
+            import json
 
-            # Look up the deployed Modal app
-            modal_app = modal.App.lookup(config.MODAL_APP_NAME, create_if_missing=False)
-            WhisperModel = modal_app.cls["WhisperModel"]
+            # Lookup the deployed streaming function
+            transcribe_stream_func = modal.Function.lookup(config.MODAL_APP_NAME, "WhisperModel.transcribe_stream")
         except Exception as e:
             raise HTTPException(
                 status_code=503,
@@ -180,10 +179,8 @@ async def transcribe_audio_stream(
         async def event_generator():
             try:
                 # Call Modal streaming transcription
-                model = WhisperModel()
-                for segment_json in model.transcribe_stream.remote(preprocessed_bytes):
+                for segment_json in transcribe_stream_func.remote_gen(preprocessed_bytes):
                     # Parse and yield as SSE event
-                    import json
 
                     segment_data = json.loads(segment_json)
                     event_type = segment_data.get("type", "unknown")

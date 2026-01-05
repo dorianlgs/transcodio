@@ -139,38 +139,39 @@ def preprocess_audio(audio_bytes: bytes) -> bytes:
         AudioValidationError: If preprocessing fails
     """
     try:
-        from pydub import AudioSegment
+        import ffmpeg
         import tempfile
         import os
 
-        # Write to temporary file
+        # Write input to temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".audio") as tmp_file:
             tmp_file.write(audio_bytes)
-            tmp_path = tmp_file.name
+            input_path = tmp_file.name
+
+        # Create output temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+            output_path = tmp_file.name
 
         try:
-            # Load audio
-            audio = AudioSegment.from_file(tmp_path)
+            # Use ffmpeg to convert: mono, 16kHz, WAV format
+            (
+                ffmpeg
+                .input(input_path)
+                .output(output_path, acodec='pcm_s16le', ac=1, ar=config.SAMPLE_RATE)
+                .overwrite_output()
+                .run(capture_stdout=True, capture_stderr=True, quiet=True)
+            )
 
-            # Convert to mono
-            if audio.channels > 1:
-                audio = audio.set_channels(1)
-
-            # Resample to 16kHz
-            if audio.frame_rate != config.SAMPLE_RATE:
-                audio = audio.set_frame_rate(config.SAMPLE_RATE)
-
-            # Export as WAV to bytes
-            output_buffer = io.BytesIO()
-            audio.export(output_buffer, format="wav")
-            output_buffer.seek(0)
-
-            return output_buffer.read()
+            # Read the output file
+            with open(output_path, 'rb') as f:
+                return f.read()
 
         finally:
             # Cleanup
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            if os.path.exists(input_path):
+                os.remove(input_path)
+            if os.path.exists(output_path):
+                os.remove(output_path)
 
     except Exception as e:
         raise AudioValidationError(f"Failed to preprocess audio: {str(e)}")
