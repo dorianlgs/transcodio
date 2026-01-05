@@ -66,13 +66,13 @@ modal setup
 
 ```bash
 # Deploy Modal GPU backend (required before running API)
-modal deploy modal_app/app.py
+py -m modal deploy modal_app/app.py
 
 # Check Modal deployment status
-modal app list
+py -m modal app list
 
 # View Modal logs
-modal app logs transcodio-app
+py -m modal app logs transcodio-app
 ```
 
 ### Running the Service
@@ -89,7 +89,7 @@ python api/main.py
 
 ```bash
 # Test Modal function directly (bypasses FastAPI)
-modal run modal_app/app.py path/to/audio.mp3
+py -m modal run modal_app/app.py path/to/audio.mp3
 
 # Test API endpoint (requires server running)
 curl -X POST "http://localhost:8000/api/transcribe" -F "file=@audio.mp3"
@@ -144,7 +144,7 @@ WHISPER_MODEL = "large"  # Options: tiny, base, small, medium, large
 MODAL_GPU_TYPE = "L4"    # Options: L4, A10G, T4
 ```
 
-Then redeploy Modal: `modal deploy modal_app/app.py`
+Then redeploy Modal: `py -m modal deploy modal_app/app.py`
 
 ## Dependencies
 
@@ -163,7 +163,7 @@ Then redeploy Modal: `modal deploy modal_app/app.py`
 
 ## Troubleshooting
 
-**"Modal service unavailable"**: The Modal app isn't deployed. Run `modal deploy modal_app/app.py`.
+**"Modal service unavailable"**: The Modal app isn't deployed. Run `py -m modal deploy modal_app/app.py`.
 
 **Slow first request**: Cold start takes 20-30s to download model and spin up GPU. Increase `MODAL_CONTAINER_IDLE_TIMEOUT` to keep containers warm longer.
 
