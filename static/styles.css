@@ -329,6 +329,34 @@ body {
     font-size: 0.875rem;
 }
 
+.footer a {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.footer a:hover {
+    color: var(--primary-dark);
+    text-decoration: none;
+}
+
+.footer a::after {
+    content: '';
+    position: absolute;
+    width: 0;
+    height: 2px;
+    bottom: -2px;
+    left: 0;
+    background: var(--gradient);
+    transition: width 0.3s ease;
+}
+
+.footer a:hover::after {
+    width: 100%;
+}
+
 /* Toast Notification */
 .toast {
     position: fixed;

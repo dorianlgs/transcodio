@@ -50,13 +50,13 @@ MODAL_MEMORY_MB = 8192  # 8GB RAM
 # Optimization 1: CPU Memory Snapshots
 # Captures container state after initialization (excludes GPU state)
 # Expected improvement: ~30-50% faster cold starts
-ENABLE_CPU_MEMORY_SNAPSHOT = False
+ENABLE_CPU_MEMORY_SNAPSHOT = True
 
 # Optimization 2: GPU Memory Snapshots (Experimental - requires CPU snapshots enabled)
 # Captures full GPU state including loaded models and compiled kernels
 # Expected improvement: 85-90% faster cold starts (34s -> 3-5s)
 # NOTE: This is an alpha feature - test thoroughly before production
-ENABLE_GPU_MEMORY_SNAPSHOT = False
+ENABLE_GPU_MEMORY_SNAPSHOT = True
 
 # Optimization 3: Model Warm-up Pass
 # Runs a dummy transcription during initialization to compile CUDA kernels
