@@ -19,6 +19,7 @@ Transcodio is a production-ready transcription service powered by OpenAI's Whisp
 ### Prerequisites
 
 - Python 3.11 or higher
+- [uv](https://github.com/astral-sh/uv) - Fast Python package installer and runner
 - [Modal](https://modal.com) account (free tier available)
 - Modal CLI installed and authenticated
 
@@ -32,19 +33,19 @@ cd transcodio
 
 2. Install dependencies:
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 3. Set up Modal authentication:
 ```bash
-modal setup
+py -m modal setup
 ```
 
 ### Deployment
 
 1. Deploy the Modal GPU backend:
 ```bash
-modal deploy modal_app/app.py
+py -m modal deploy modal_app/app.py
 ```
 
 This will:
@@ -55,7 +56,7 @@ This will:
 
 2. Start the FastAPI server locally:
 ```bash
-python -m uvicorn api.main:app --reload
+uv run uvicorn api.main:app --reload
 ```
 
 3. Open your browser to `http://localhost:8000`
@@ -68,6 +69,27 @@ python -m uvicorn api.main:app --reload
 2. Drag and drop an audio file or click to browse
 3. Watch real-time transcription results appear
 4. Copy or download the transcription
+
+### CLI Tool
+
+Transcribe audio files directly from the command line:
+
+```bash
+# Basic usage
+uv run transcribe_file.py audio.mp3
+
+# Save to file
+uv run transcribe_file.py audio.mp3 -o transcript.txt
+
+# Non-streaming mode (faster for complete results)
+uv run transcribe_file.py audio.mp3 --no-stream
+
+# Process multiple files
+uv run transcribe_file.py *.mp3
+
+# View all options
+uv run transcribe_file.py --help
+```
 
 ### API Endpoints
 
@@ -233,17 +255,23 @@ transcodio/
 Test the Modal function directly:
 
 ```bash
-modal run modal_app/app.py path/to/audio.mp3
+py -m modal run modal_app/app.py path/to/audio.mp3
+```
+
+Or use the improved CLI tool:
+
+```bash
+uv run transcribe_file.py path/to/audio.mp3
 ```
 
 ### Running Tests
 
 ```bash
-# Install dev dependencies
-pip install pytest pytest-asyncio httpx
+# Install dev dependencies (or add to pyproject.toml)
+uv add --dev pytest pytest-asyncio httpx
 
 # Run tests (coming soon)
-pytest tests/
+uv run pytest tests/
 ```
 
 ## Troubleshooting
@@ -251,8 +279,8 @@ pytest tests/
 ### "Modal service unavailable"
 Make sure the Modal app is deployed:
 ```bash
-modal deploy modal_app/app.py
-modal app list  # Verify it's running
+py -m modal deploy modal_app/app.py
+py -m modal app list  # Verify it's running
 ```
 
 ### Slow first request (cold start)

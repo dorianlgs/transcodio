@@ -55,11 +55,11 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
 ### Development Setup
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies using uv
+uv sync
 
 # Authenticate with Modal (required once)
-modal setup
+py -m modal setup
 ```
 
 ### Deployment
@@ -79,10 +79,10 @@ py -m modal app logs transcodio-app
 
 ```bash
 # Start FastAPI server (after Modal is deployed)
-python -m uvicorn api.main:app --reload
+uv run uvicorn api.main:app --reload
 
 # Alternative: run directly
-python api/main.py
+uv run python api/main.py
 ```
 
 ### Testing
@@ -90,6 +90,9 @@ python api/main.py
 ```bash
 # Test Modal function directly (bypasses FastAPI)
 py -m modal run modal_app/app.py path/to/audio.mp3
+
+# Test using the CLI tool
+uv run transcribe_file.py path/to/audio.mp3
 
 # Test API endpoint (requires server running)
 curl -X POST "http://localhost:8000/api/transcribe" -F "file=@audio.mp3"
@@ -150,6 +153,7 @@ Then redeploy Modal: `py -m modal deploy modal_app/app.py`
 
 **System requirements**:
 - Python 3.11+
+- [uv](https://github.com/astral-sh/uv) - Fast Python package installer and runner
 - FFmpeg (must be installed locally for audio processing)
 - Modal account (free tier available)
 
