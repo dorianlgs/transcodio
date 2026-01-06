@@ -42,6 +42,36 @@ MODAL_CONTAINER_IDLE_TIMEOUT = 120  # 2 minutes
 MODAL_TIMEOUT = 600  # 10 minutes max processing time
 MODAL_MEMORY_MB = 8192  # 8GB RAM
 
+# ============================================================================
+# COLD START OPTIMIZATION FLAGS
+# Enable these one at a time to measure impact on cold start performance
+# ============================================================================
+
+# Optimization 1: CPU Memory Snapshots
+# Captures container state after initialization (excludes GPU state)
+# Expected improvement: ~30-50% faster cold starts
+ENABLE_CPU_MEMORY_SNAPSHOT = False
+
+# Optimization 2: GPU Memory Snapshots (Experimental - requires CPU snapshots enabled)
+# Captures full GPU state including loaded models and compiled kernels
+# Expected improvement: 85-90% faster cold starts (34s -> 3-5s)
+# NOTE: This is an alpha feature - test thoroughly before production
+ENABLE_GPU_MEMORY_SNAPSHOT = False
+
+# Optimization 3: Model Warm-up Pass
+# Runs a dummy transcription during initialization to compile CUDA kernels
+# Works best WITH GPU snapshots to capture compiled kernels
+# Expected improvement: Minimal without snapshots, significant with GPU snapshots
+ENABLE_MODEL_WARMUP = False
+
+# Optimization 4: Extended Container Idle Timeout
+# Keep containers warm longer to avoid cold starts
+# Trade-off: Higher idle costs vs fewer cold starts
+# Recommended values: 300 (5 min), 600 (10 min), 1200 (20 min)
+# Set to 120 for baseline testing
+EXTENDED_IDLE_TIMEOUT = False
+EXTENDED_IDLE_TIMEOUT_SECONDS = 300  # Used when EXTENDED_IDLE_TIMEOUT = True
+
 # API configuration
 API_TITLE = "Transcodio Transcription API"
 API_VERSION = "1.0.0"

@@ -41,24 +41,51 @@ app = modal.App(config.MODAL_APP_NAME)
 # Create Modal Volume for persistent model storage
 volume = modal.Volume.from_name(config.MODAL_VOLUME_NAME, create_if_missing=True)
 
+# Build decorator arguments based on optimization flags
+decorator_kwargs = {
+    "image": whisper_image,
+    "gpu": config.MODAL_GPU_TYPE,
+    "scaledown_window": (
+        config.EXTENDED_IDLE_TIMEOUT_SECONDS
+        if config.EXTENDED_IDLE_TIMEOUT
+        else config.MODAL_CONTAINER_IDLE_TIMEOUT
+    ),
+    "timeout": config.MODAL_TIMEOUT,
+    "memory": config.MODAL_MEMORY_MB,
+    "volumes": {"/models": volume},
+}
 
-@app.cls(
-    image=whisper_image,
-    gpu="L4",
-    scaledown_window=config.MODAL_CONTAINER_IDLE_TIMEOUT,
-    timeout=config.MODAL_TIMEOUT,
-    memory=config.MODAL_MEMORY_MB,
-    volumes={"/models": volume},
-)
+# Print configuration summary
+print(f"GPU Type: {config.MODAL_GPU_TYPE}")
+print(f"Memory: {config.MODAL_MEMORY_MB}MB")
+print(f"Container idle timeout: {decorator_kwargs['scaledown_window']}s")
+
+# Add CPU memory snapshot if enabled
+if config.ENABLE_CPU_MEMORY_SNAPSHOT:
+    decorator_kwargs["enable_memory_snapshot"] = True
+    print(f"✓ CPU Memory Snapshots: ENABLED")
+
+# Add GPU memory snapshot if enabled (requires CPU snapshots)
+if config.ENABLE_GPU_MEMORY_SNAPSHOT:
+    if not config.ENABLE_CPU_MEMORY_SNAPSHOT:
+        raise ValueError(
+            "ENABLE_GPU_MEMORY_SNAPSHOT requires ENABLE_CPU_MEMORY_SNAPSHOT to be True"
+        )
+    decorator_kwargs["experimental_options"] = {"enable_gpu_snapshot": True}
+    print(f"✓ GPU Memory Snapshots: ENABLED (Experimental)")
+
+@app.cls(**decorator_kwargs)
 class WhisperModel:
     """Whisper model class for GPU-accelerated transcription."""
 
-    @modal.enter()
+    @modal.enter(snap=config.ENABLE_CPU_MEMORY_SNAPSHOT or config.ENABLE_GPU_MEMORY_SNAPSHOT)
     def load_model(self):
         """Load Whisper model once per container (runs on container startup)."""
         import whisper
         import torch
+        import time
 
+        start_time = time.time()
         print(f"Loading Whisper {config.WHISPER_MODEL} model...")
 
         # Load model with GPU acceleration
@@ -68,7 +95,39 @@ class WhisperModel:
             download_root="/models",
         )
 
-        print(f"Model loaded successfully on {config.WHISPER_DEVICE}")
+        load_time = time.time() - start_time
+        print(f"Model loaded successfully on {config.WHISPER_DEVICE} in {load_time:.2f}s")
+
+        # Optional: Warm up model with dummy forward pass
+        # This compiles CUDA kernels which will be captured in GPU snapshots
+        if config.ENABLE_MODEL_WARMUP:
+            print("Warming up model with dummy forward pass...")
+            warmup_start = time.time()
+
+            import numpy as np
+            # Create 1 second of silence at 16kHz (Whisper's native sample rate)
+            dummy_audio = np.zeros(16000, dtype=np.float32)
+
+            # Run transcription to compile kernels
+            _ = self.model.transcribe(
+                dummy_audio,
+                fp16=config.WHISPER_FP16,
+                verbose=False,
+            )
+
+            warmup_time = time.time() - warmup_start
+            print(f"Model warm-up completed in {warmup_time:.2f}s")
+
+        total_time = time.time() - start_time
+        print(f"Total initialization time: {total_time:.2f}s")
+
+        # Print optimization status
+        if config.ENABLE_CPU_MEMORY_SNAPSHOT:
+            print("→ This state will be captured in CPU memory snapshot")
+        if config.ENABLE_GPU_MEMORY_SNAPSHOT:
+            print("→ GPU state (including loaded model) will be captured in snapshot")
+        if config.ENABLE_MODEL_WARMUP and config.ENABLE_GPU_MEMORY_SNAPSHOT:
+            print("→ Compiled CUDA kernels will be captured in GPU snapshot")
 
     @modal.method()
     def transcribe(self, audio_bytes: bytes) -> Dict[str, Any]:
