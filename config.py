@@ -92,8 +92,8 @@ SAMPLE_RATE = 16000  # Parakeet TDT's native sample rate (16kHz)
 # Silence detection configuration for streaming
 # Lower threshold = more sensitive (detects softer pauses)
 # Lower min_length = detects shorter pauses
-SILENCE_THRESHOLD_DB = -35  # dB threshold for silence detection (was -45)
-SILENCE_MIN_LENGTH_MS = 400  # Minimum silence duration in milliseconds (was 1000)
+SILENCE_THRESHOLD_DB = -40  # dB threshold for silence detection (balance between -45 and -35)
+SILENCE_MIN_LENGTH_MS = 700  # Minimum silence duration in milliseconds (balance between 1000 and 400)
 
 # Environment variables
 ENV_MODE = os.getenv("ENV", "development")
