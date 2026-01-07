@@ -12,12 +12,15 @@ const duration = document.getElementById('duration');
 const language = document.getElementById('language');
 const copyBtn = document.getElementById('copyBtn');
 const downloadBtn = document.getElementById('downloadBtn');
+const downloadSrtBtn = document.getElementById('downloadSrtBtn');
+const downloadVttBtn = document.getElementById('downloadVttBtn');
 const newTranscriptionBtn = document.getElementById('newTranscriptionBtn');
 const toast = document.getElementById('toast');
 
 // State
 let currentTranscription = '';
 let currentFile = null;
+let currentSegments = []; // Store segments for subtitle export
 
 // Initialize
 function init() {
@@ -40,6 +43,8 @@ function setupEventListeners() {
     // Button clicks
     copyBtn.addEventListener('click', copyToClipboard);
     downloadBtn.addEventListener('click', downloadTranscription);
+    downloadSrtBtn.addEventListener('click', downloadSRT);
+    downloadVttBtn.addEventListener('click', downloadVTT);
     newTranscriptionBtn.addEventListener('click', resetApp);
 }
 
@@ -127,6 +132,7 @@ async function transcribeWithStreaming(formData) {
     segments.innerHTML = '';
     fullText.textContent = '';
     currentTranscription = '';
+    currentSegments = [];
 
     try {
         console.log('Sending transcription request...');
@@ -280,6 +286,14 @@ function handleStreamEvent(eventType, data) {
 
 // Add Segment to UI
 function addSegment(segmentData) {
+    // Store segment data for subtitle export
+    currentSegments.push({
+        id: segmentData.id,
+        start: segmentData.start,
+        end: segmentData.end,
+        text: segmentData.text
+    });
+
     const segmentEl = document.createElement('div');
     segmentEl.className = 'segment';
 
@@ -363,11 +377,84 @@ function downloadTranscription() {
     showToast('Downloaded!', 'success');
 }
 
+// Format time for SRT (HH:MM:SS,mmm)
+function formatTimeSRT(seconds) {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    const ms = Math.round((seconds % 1) * 1000);
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
+}
+
+// Format time for VTT (HH:MM:SS.mmm)
+function formatTimeVTT(seconds) {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    const ms = Math.round((seconds % 1) * 1000);
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+}
+
+// Generate SRT subtitle content
+function generateSRT() {
+    return currentSegments.map((segment, index) => {
+        return `${index + 1}\n${formatTimeSRT(segment.start)} --> ${formatTimeSRT(segment.end)}\n${segment.text.trim()}\n`;
+    }).join('\n');
+}
+
+// Generate VTT subtitle content
+function generateVTT() {
+    const header = 'WEBVTT\n\n';
+    const cues = currentSegments.map((segment, index) => {
+        return `${index + 1}\n${formatTimeVTT(segment.start)} --> ${formatTimeVTT(segment.end)}\n${segment.text.trim()}\n`;
+    }).join('\n');
+    return header + cues;
+}
+
+// Download SRT file
+function downloadSRT() {
+    if (currentSegments.length === 0) {
+        showToast('No transcription data available', 'error');
+        return;
+    }
+    const srtContent = generateSRT();
+    const blob = new Blob([srtContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transcription-${Date.now()}.srt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('SRT downloaded!', 'success');
+}
+
+// Download VTT file
+function downloadVTT() {
+    if (currentSegments.length === 0) {
+        showToast('No transcription data available', 'error');
+        return;
+    }
+    const vttContent = generateVTT();
+    const blob = new Blob([vttContent], { type: 'text/vtt' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transcription-${Date.now()}.vtt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('VTT downloaded!', 'success');
+}
+
 function resetApp() {
     showSection('upload');
     fileInput.value = '';
     currentFile = null;
     currentTranscription = '';
+    currentSegments = [];
     segments.innerHTML = '';
     fullText.textContent = '';
     progressFill.style.width = '0%';
