@@ -120,12 +120,8 @@ class KyutaiSTTModel:
             dummy_audio = np.zeros(config.SAMPLE_RATE, dtype=np.float32)
 
             # Run transcription to compile kernels
-            inputs = self.processor(
-                dummy_audio,
-                sampling_rate=config.SAMPLE_RATE,
-                return_tensors="pt",
-            )
-            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+            inputs = self.processor(audio=dummy_audio, sampling_rate=config.SAMPLE_RATE, return_tensors="pt")
+            inputs = inputs.to(self.model.device)
             _ = self.model.generate(**inputs)
 
             warmup_time = time.time() - warmup_start
@@ -173,12 +169,14 @@ class KyutaiSTTModel:
 
         # Load audio
         audio_data, sample_rate = self._load_audio(audio_bytes)
+        print(f"Audio loaded: shape={audio_data.shape}, dtype={audio_data.dtype}, sample_rate={sample_rate}")
 
         # Calculate duration from audio length
         duration = len(audio_data) / sample_rate
 
-        # Process audio through processor (single audio - no return_tensors needed)
-        inputs = self.processor(audio_data)
+        # Process audio through processor
+        inputs = self.processor(audio=audio_data, sampling_rate=sample_rate, return_tensors="pt")
+        print(f"Processor inputs: {inputs.keys()}")
         inputs = inputs.to(self.model.device)
 
         # Generate transcription
@@ -219,6 +217,7 @@ class KyutaiSTTModel:
         try:
             # Load audio
             audio_data, sample_rate = self._load_audio(audio_bytes)
+            print(f"Audio loaded: shape={audio_data.shape}, dtype={audio_data.dtype}, sample_rate={sample_rate}")
 
             # Calculate duration
             duration = actual_duration if actual_duration > 0 else len(audio_data) / sample_rate
@@ -231,12 +230,9 @@ class KyutaiSTTModel:
             })
 
             # Process audio through processor
-            inputs = self.processor(
-                audio_data,
-                sampling_rate=sample_rate,
-                return_tensors="pt",
-            )
-            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+            inputs = self.processor(audio=audio_data, sampling_rate=sample_rate, return_tensors="pt")
+            print(f"Processor inputs: {inputs.keys()}")
+            inputs = inputs.to(self.model.device)
 
             # Generate transcription
             with torch.no_grad():
@@ -262,6 +258,9 @@ class KyutaiSTTModel:
             })
 
         except Exception as e:
+            import traceback
+            print(f"Error: {e}")
+            print(traceback.format_exc())
             # Yield error
             yield json.dumps({
                 "type": "error",
