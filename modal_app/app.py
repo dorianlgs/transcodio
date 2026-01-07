@@ -1,12 +1,13 @@
-"""Modal app with Kyutai STT transcription service."""
+"""Modal app with NVIDIA Parakeet TDT transcription service."""
 
 import io
 import json
+import os
+import sys
 from typing import Iterator, Dict, Any
+from pathlib import Path
 
 import modal
-import sys
-from pathlib import Path
 
 # Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -14,21 +15,24 @@ import config
 
 # Create the container image with all required dependencies
 stt_image = (
-    modal.Image.debian_slim(python_version="3.11")
-    # Install system dependencies for audio processing
-    .apt_install(
-        "ffmpeg",
-        "libsndfile1",
+    modal.Image.from_registry(
+        "nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04", add_python="3.12"
     )
-    # Install Python packages for ML and audio
-    .pip_install(
-        "torch>=2.1.0",
-        "torchaudio>=2.1.0",
-        "transformers>=4.53.0",
-        "accelerate>=0.30.0",
-        "ffmpeg-python>=0.2.0",
-        "numpy>=1.24.0",
-        "soundfile>=0.12.0",
+    .env({
+        "HF_XET_HIGH_PERFORMANCE": "1",
+        "HF_HOME": "/models",  # Use Modal volume for HuggingFace cache
+        "DEBIAN_FRONTEND": "noninteractive",
+        "CXX": "g++",
+        "CC": "g++",
+    })
+    .apt_install("ffmpeg")
+    .uv_pip_install(
+        "hf_transfer==0.1.9",
+        "huggingface-hub==0.36.0",
+        "nemo_toolkit[asr]==2.3.0",
+        "cuda-python==12.8.0",
+        "numpy<2",
+        "pydub==0.25.1",
     )
     # Add config file to the image
     .add_local_file(
@@ -77,55 +81,53 @@ if config.ENABLE_GPU_MEMORY_SNAPSHOT:
     print(f"GPU Memory Snapshots: ENABLED (Experimental)")
 
 
+class NoStdStreams:
+    """Context manager to suppress NeMo's verbose stdout/stderr."""
+
+    def __init__(self):
+        self.devnull = open(os.devnull, "w")
+
+    def __enter__(self):
+        self._stdout, self._stderr = sys.stdout, sys.stderr
+        self._stdout.flush()
+        self._stderr.flush()
+        sys.stdout, sys.stderr = self.devnull, self.devnull
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        sys.stdout, sys.stderr = self._stdout, self._stderr
+        self.devnull.close()
+
+
 @app.cls(**decorator_kwargs)
-class KyutaiSTTModel:
-    """Kyutai STT model class for GPU-accelerated transcription."""
+class ParakeetSTTModel:
+    """NVIDIA Parakeet TDT model for streaming GPU-accelerated transcription."""
 
     @modal.enter(snap=config.ENABLE_CPU_MEMORY_SNAPSHOT or config.ENABLE_GPU_MEMORY_SNAPSHOT)
     def load_model(self):
-        """Load Kyutai STT model once per container (runs on container startup)."""
-        import torch
+        """Load Parakeet TDT model once per container (runs on container startup)."""
+        import logging
+        import nemo.collections.asr as nemo_asr
         import time
-        from transformers import KyutaiSpeechToTextProcessor, KyutaiSpeechToTextForConditionalGeneration
 
         start_time = time.time()
-        print(f"Loading Kyutai STT model: {config.STT_MODEL_ID}...")
 
-        # Set cache directory to Modal volume
-        cache_dir = "/models/huggingface"
+        # Suppress NeMo's verbose logging
+        logging.getLogger("nemo_logger").setLevel(logging.CRITICAL)
 
-        # Load processor and model
-        self.processor = KyutaiSpeechToTextProcessor.from_pretrained(
-            config.STT_MODEL_ID,
-            cache_dir=cache_dir,
-        )
+        print(f"Loading Parakeet TDT model: {config.STT_MODEL_ID}...")
 
-        self.model = KyutaiSpeechToTextForConditionalGeneration.from_pretrained(
-            config.STT_MODEL_ID,
-            cache_dir=cache_dir,
-            device_map=config.STT_DEVICE,
-            torch_dtype=config.STT_DTYPE,
+        # NeMo uses HuggingFace Hub internally, respects HF_HOME env var
+        self.model = nemo_asr.models.ASRModel.from_pretrained(
+            model_name=config.STT_MODEL_ID
         )
 
         load_time = time.time() - start_time
-        print(f"Model loaded successfully on {config.STT_DEVICE} in {load_time:.2f}s")
+        print(f"Model loaded successfully in {load_time:.2f}s")
 
         # Optional: Warm up model with dummy forward pass
         if config.ENABLE_MODEL_WARMUP:
-            print("Warming up model with dummy forward pass...")
-            warmup_start = time.time()
-
-            import numpy as np
-            # Create 1 second of silence at 24kHz (Kyutai's native sample rate)
-            dummy_audio = np.zeros(config.SAMPLE_RATE, dtype=np.float32)
-
-            # Run transcription to compile kernels
-            inputs = self.processor(audio=dummy_audio, sampling_rate=config.SAMPLE_RATE, return_tensors="pt")
-            inputs = inputs.to(self.model.device)
-            _ = self.model.generate(**inputs)
-
-            warmup_time = time.time() - warmup_start
-            print(f"Model warm-up completed in {warmup_time:.2f}s")
+            self._warmup_model()
 
         total_time = time.time() - start_time
         print(f"Total initialization time: {total_time:.2f}s")
@@ -136,60 +138,53 @@ class KyutaiSTTModel:
         if config.ENABLE_GPU_MEMORY_SNAPSHOT:
             print("-> GPU state (including loaded model) will be captured in snapshot")
 
-    def _load_audio(self, audio_bytes: bytes) -> tuple:
-        """Load audio from bytes and return numpy array with sample rate."""
-        import soundfile as sf
+    def _warmup_model(self):
+        """Warmup model with dummy audio to compile CUDA kernels."""
         import numpy as np
-        import io
+        import time
 
-        # Read audio file
-        audio_data, sample_rate = sf.read(io.BytesIO(audio_bytes))
+        print("Warming up model with dummy forward pass...")
+        warmup_start = time.time()
 
-        # Convert to mono if stereo
-        if len(audio_data.shape) > 1:
-            audio_data = audio_data.mean(axis=1)
+        # Create 1 second of silence at 16kHz (Parakeet's native sample rate)
+        dummy_audio = np.zeros(config.SAMPLE_RATE, dtype=np.float32)
 
-        # Ensure float32
-        audio_data = audio_data.astype(np.float32)
+        # Run transcription to compile kernels (suppress output)
+        with NoStdStreams():
+            self.model.transcribe([dummy_audio])
 
-        return audio_data, sample_rate
+        warmup_time = time.time() - warmup_start
+        print(f"Model warm-up completed in {warmup_time:.2f}s")
 
     @modal.method()
     def transcribe(self, audio_bytes: bytes) -> Dict[str, Any]:
         """
-        Transcribe audio file and return complete results.
+        Transcribe complete audio file (non-streaming).
 
         Args:
-            audio_bytes: Raw audio file bytes (should be 24kHz WAV)
+            audio_bytes: Raw audio bytes (16-bit PCM, 16kHz, mono WAV)
 
         Returns:
-            Dictionary with transcription results
+            Dict with transcription results
         """
-        import torch
+        import numpy as np
 
-        # Load audio
-        audio_data, sample_rate = self._load_audio(audio_bytes)
-        print(f"Audio loaded: shape={audio_data.shape}, dtype={audio_data.dtype}, sample_rate={sample_rate}")
+        # Convert bytes to numpy array (int16 → float32)
+        audio_data = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
+        duration = len(audio_data) / config.SAMPLE_RATE
 
-        # Calculate duration from audio length
-        duration = len(audio_data) / sample_rate
+        print(f"Transcribing audio: {len(audio_data)} samples ({duration:.2f}s)")
 
-        # Process audio through processor
-        inputs = self.processor(audio=audio_data, sampling_rate=sample_rate, return_tensors="pt")
-        print(f"Processor inputs: {inputs.keys()}")
-        inputs = inputs.to(self.model.device)
+        # Transcribe with NeMo (suppress verbose logs)
+        with NoStdStreams():
+            output = self.model.transcribe([audio_data])
 
-        # Generate transcription
-        with torch.no_grad():
-            output_tokens = self.model.generate(**inputs)
-
-        # Decode output
-        transcription = self.processor.batch_decode(output_tokens, skip_special_tokens=True)
-        text = transcription[0] if transcription else ""
+        # Extract text from NeMo output
+        text = output[0].text if output and hasattr(output[0], 'text') else ""
 
         return {
             "text": text,
-            "language": "en",  # Kyutai stt-2.6b-en is English only
+            "language": "en",  # Parakeet TDT 0.6B v3 is English-only
             "segments": [
                 {
                     "id": 0,
@@ -203,65 +198,134 @@ class KyutaiSTTModel:
     @modal.method()
     def transcribe_stream(self, audio_bytes: bytes, actual_duration: float = 0.0) -> Iterator[str]:
         """
-        Transcribe audio file and yield segments as they complete.
+        Transcribe audio with real progressive streaming using silence detection.
 
         Args:
-            audio_bytes: Raw audio file bytes (should be 24kHz WAV)
-            actual_duration: Actual duration of audio in seconds (from ffmpeg)
+            audio_bytes: Raw audio bytes (16-bit PCM, 16kHz, mono WAV)
+            actual_duration: Actual duration from FFmpeg
 
         Yields:
-            JSON strings with segment data
+            JSON strings: metadata → segment(s) → complete
         """
-        import torch
+        import numpy as np
+        from pydub import AudioSegment, silence
 
         try:
-            # Load audio
-            audio_data, sample_rate = self._load_audio(audio_bytes)
-            print(f"Audio loaded: shape={audio_data.shape}, dtype={audio_data.dtype}, sample_rate={sample_rate}")
-
             # Calculate duration
-            duration = actual_duration if actual_duration > 0 else len(audio_data) / sample_rate
+            audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+            duration = actual_duration if actual_duration > 0 else len(audio_array) / config.SAMPLE_RATE
 
             # Yield metadata first
             yield json.dumps({
                 "type": "metadata",
-                "language": "en",  # Kyutai stt-2.6b-en is English only
+                "language": "en",
                 "duration": duration,
             })
 
-            # Process audio through processor
-            inputs = self.processor(audio=audio_data, sampling_rate=sample_rate, return_tensors="pt")
-            print(f"Processor inputs: {inputs.keys()}")
-            inputs = inputs.to(self.model.device)
+            # Create AudioSegment for silence detection
+            audio_segment = AudioSegment(
+                data=audio_bytes,
+                channels=1,
+                sample_width=2,  # 16-bit
+                frame_rate=config.SAMPLE_RATE,
+            )
 
-            # Generate transcription
-            with torch.no_grad():
-                output_tokens = self.model.generate(**inputs)
+            # Detect silent windows
+            silent_windows = silence.detect_silence(
+                audio_segment,
+                min_silence_len=config.SILENCE_MIN_LENGTH_MS,
+                silence_thresh=config.SILENCE_THRESHOLD_DB,
+            )
 
-            # Decode output
-            transcription = self.processor.batch_decode(output_tokens, skip_special_tokens=True)
-            text = transcription[0] if transcription else ""
+            print(f"Detected {len(silent_windows)} silent windows")
 
-            # Yield single segment (Kyutai doesn't provide segment-level timestamps by default)
-            yield json.dumps({
-                "type": "segment",
-                "id": 0,
-                "start": 0.0,
-                "end": duration,
-                "text": text,
-            })
+            # If no silence detected, transcribe entire audio at once
+            if not silent_windows:
+                audio_float = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
+                with NoStdStreams():
+                    output = self.model.transcribe([audio_float])
+                text = output[0].text if output and hasattr(output[0], 'text') else ""
 
-            # Yield final complete text
+                yield json.dumps({
+                    "type": "segment",
+                    "id": 0,
+                    "start": 0.0,
+                    "end": duration,
+                    "text": text,
+                })
+            else:
+                # Transcribe segments progressively based on silence boundaries
+                segment_id = 0
+                current_pos = 0
+
+                for window_start, window_end in silent_windows:
+                    # Extract segment up to end of silence
+                    segment_audio = audio_segment[current_pos:window_end]
+
+                    # Skip very short segments (< 100ms)
+                    if len(segment_audio) < 100:
+                        continue
+
+                    # Transcribe segment
+                    segment_float = np.frombuffer(
+                        segment_audio.raw_data,
+                        dtype=np.int16
+                    ).astype(np.float32)
+
+                    with NoStdStreams():
+                        output = self.model.transcribe([segment_float])
+
+                    text = output[0].text if output and hasattr(output[0], 'text') else ""
+
+                    # Only yield if there's actual text
+                    if text.strip():
+                        start_time = current_pos / 1000.0  # ms → seconds
+                        end_time = window_end / 1000.0
+
+                        yield json.dumps({
+                            "type": "segment",
+                            "id": segment_id,
+                            "start": start_time,
+                            "end": end_time,
+                            "text": text,
+                        })
+
+                        segment_id += 1
+
+                    current_pos = window_end
+
+                # Process any remaining audio after the last silence
+                if current_pos < len(audio_segment):
+                    remaining_audio = audio_segment[current_pos:]
+                    remaining_float = np.frombuffer(
+                        remaining_audio.raw_data,
+                        dtype=np.int16
+                    ).astype(np.float32)
+
+                    with NoStdStreams():
+                        output = self.model.transcribe([remaining_float])
+
+                    text = output[0].text if output and hasattr(output[0], 'text') else ""
+
+                    if text.strip():
+                        yield json.dumps({
+                            "type": "segment",
+                            "id": segment_id,
+                            "start": current_pos / 1000.0,
+                            "end": duration,
+                            "text": text,
+                        })
+
+            # Yield completion
             yield json.dumps({
                 "type": "complete",
-                "text": text,
+                "text": "Transcription complete",
             })
 
         except Exception as e:
             import traceback
             print(f"Error: {e}")
             print(traceback.format_exc())
-            # Yield error
             yield json.dumps({
                 "type": "error",
                 "error": str(e),
@@ -270,30 +334,32 @@ class KyutaiSTTModel:
 
 @app.local_entrypoint()
 def main():
-    """Local entrypoint for testing the Modal app."""
-    import sys
-
+    """Test Parakeet TDT model locally."""
     if len(sys.argv) < 2:
         print("Usage: modal run modal_app/app.py <audio_file_path>")
         sys.exit(1)
 
     audio_path = sys.argv[1]
 
-    # Read audio file
     with open(audio_path, "rb") as f:
         audio_bytes = f.read()
 
-    print(f"Transcribing {audio_path}...")
-    print("-" * 50)
+    print(f"Transcribing {audio_path} with streaming...")
+    print("-" * 60)
 
-    # Test streaming transcription
-    model = KyutaiSTTModel()
+    model = ParakeetSTTModel()
+    segments = []
+
     for chunk in model.transcribe_stream.remote(audio_bytes):
         data = json.loads(chunk)
-        if data["type"] == "segment":
+        if data["type"] == "metadata":
+            print(f"Duration: {data['duration']:.2f}s | Language: {data['language']}")
+            print("-" * 60)
+        elif data["type"] == "segment":
             print(f"[{data['start']:.2f}s - {data['end']:.2f}s] {data['text']}")
+            segments.append(data['text'])
         elif data["type"] == "complete":
-            print("-" * 50)
-            print(f"Complete: {data['text']}")
+            print("-" * 60)
+            print(f"Complete transcription:\n{' '.join(segments)}")
         elif data["type"] == "error":
-            print(f"Error: {data['error']}")
+            print(f"ERROR: {data['error']}")

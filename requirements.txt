@@ -3,15 +3,15 @@ modal>=0.63.0
 fastapi>=0.109.0
 uvicorn>=0.27.0
 
-# ML/Audio
-openai-whisper>=20231117
-torch>=2.1.0
-torchaudio>=2.1.0
-numpy>=1.24.0
+# ML/Audio - Parakeet TDT (NeMo automatically installs PyTorch, torchaudio)
+nemo_toolkit[asr]==2.3.0
+numpy>=1.24.0,<2  # Important: numpy<2 for NeMo compatibility
+hf_transfer==0.1.9  # Fast HuggingFace downloads
+huggingface-hub>=0.36.0
 
 # Audio Processing
 ffmpeg-python>=0.2.0
-pydub>=0.25.1
+pydub>=0.25.1  # For silence detection in streaming
 
 # API/Streaming
 python-multipart>=0.0.6

@@ -28,14 +28,14 @@ SUPPORTED_MIME_TYPES = [
     "video/mp4",
 ]
 
-# Kyutai STT model configuration
-STT_MODEL_ID = "kyutai/stt-2.6b-en-trfs"  # HuggingFace model ID
+# NVIDIA Parakeet TDT model configuration
+STT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"  # HuggingFace model ID
 STT_DEVICE = "cuda"
 STT_DTYPE = "auto"  # Use auto dtype selection (bfloat16 on supported GPUs)
 
 # Modal configuration
 MODAL_APP_NAME = "transcodio-app"
-MODAL_VOLUME_NAME = "kyutai-stt-models"
+MODAL_VOLUME_NAME = "parakeet-models"  # Changed from kyutai-stt-models
 MODAL_GPU_TYPE = "L4"  # NVIDIA L4
 MODAL_GPU_COUNT = 1
 MODAL_CONTAINER_IDLE_TIMEOUT = 120  # 2 minutes
@@ -50,13 +50,13 @@ MODAL_MEMORY_MB = 8192  # 8GB RAM
 # Optimization 1: CPU Memory Snapshots
 # Captures container state after initialization (excludes GPU state)
 # Expected improvement: ~30-50% faster cold starts
-ENABLE_CPU_MEMORY_SNAPSHOT = False
+ENABLE_CPU_MEMORY_SNAPSHOT = True
 
 # Optimization 2: GPU Memory Snapshots (Experimental - requires CPU snapshots enabled)
 # Captures full GPU state including loaded models and compiled kernels
 # Expected improvement: 85-90% faster cold starts (34s -> 3-5s)
 # NOTE: This is an alpha feature - test thoroughly before production
-ENABLE_GPU_MEMORY_SNAPSHOT = False
+ENABLE_GPU_MEMORY_SNAPSHOT = True
 
 # Optimization 3: Model Warm-up Pass
 # Runs a dummy transcription during initialization to compile CUDA kernels
@@ -87,7 +87,13 @@ CORS_ORIGINS = [
 ]
 
 # Transcription settings
-SAMPLE_RATE = 24000  # Kyutai STT's native sample rate
+SAMPLE_RATE = 16000  # Parakeet TDT's native sample rate (16kHz)
+
+# Silence detection configuration for streaming
+# Lower threshold = more sensitive (detects softer pauses)
+# Lower min_length = detects shorter pauses
+SILENCE_THRESHOLD_DB = -35  # dB threshold for silence detection (was -45)
+SILENCE_MIN_LENGTH_MS = 400  # Minimum silence duration in milliseconds (was 1000)
 
 # Environment variables
 ENV_MODE = os.getenv("ENV", "development")

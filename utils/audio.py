@@ -126,7 +126,7 @@ def preprocess_audio(audio_bytes: bytes) -> bytes:
     """
     Preprocess audio file for optimal transcription.
     - Convert to WAV format
-    - Resample to 24kHz (Kyutai STT's native rate)
+    - Resample to 16kHz (Parakeet TDT's native rate)
     - Convert to mono
 
     Args:

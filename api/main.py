@@ -103,7 +103,7 @@ async def transcribe_audio(
             import modal
 
             # Lookup the deployed class and method
-            STTModel = modal.Cls.from_name(config.MODAL_APP_NAME, "KyutaiSTTModel")
+            STTModel = modal.Cls.from_name(config.MODAL_APP_NAME, "ParakeetSTTModel")
             model = STTModel()
         except Exception as e:
             raise HTTPException(
@@ -169,7 +169,7 @@ async def transcribe_audio_stream(
             import json
 
             # Lookup the deployed class
-            STTModel = modal.Cls.from_name(config.MODAL_APP_NAME, "KyutaiSTTModel")
+            STTModel = modal.Cls.from_name(config.MODAL_APP_NAME, "ParakeetSTTModel")
             model = STTModel()
         except Exception as e:
             raise HTTPException(
