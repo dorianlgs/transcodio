@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Transcodio is a production-ready audio transcription service using OpenAI's Whisper Large model deployed on Modal's serverless GPU infrastructure. The service provides real-time streaming transcription via Server-Sent Events (SSE).
+Transcodio is a production-ready audio transcription service using Kyutai's STT 2.6B model deployed on Modal's serverless GPU infrastructure. The service provides real-time streaming transcription via Server-Sent Events (SSE).
 
 Key features:
 - GPU-accelerated transcription using NVIDIA L4 GPUs on Modal
@@ -12,6 +12,7 @@ Key features:
 - FastAPI web server with REST endpoints
 - Audio preprocessing and validation using FFmpeg
 - Support for multiple audio formats (MP3, WAV, M4A, FLAC, OGG, WebM)
+- Subtitle export (SRT/VTT formats)
 
 ## Architecture
 
@@ -19,7 +20,7 @@ The application has a three-tier architecture:
 
 1. **Frontend (static/)**: Browser-based UI with drag-and-drop and SSE streaming support
 2. **API Layer (api/)**: FastAPI application handling uploads, validation, and SSE streaming
-3. **GPU Backend (modal_app/)**: Modal serverless functions running Whisper model
+3. **GPU Backend (modal_app/)**: Modal serverless functions running Kyutai STT model
 
 Data flow:
 ```
@@ -29,26 +30,26 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
 ### Key Components
 
 **modal_app/app.py**:
-- Contains the `WhisperModel` class decorated with `@app.cls()`
+- Contains the `KyutaiSTTModel` class decorated with `@app.cls()`
 - Runs on Modal's serverless GPU infrastructure (NVIDIA L4)
 - Two main methods: `transcribe()` for complete results, `transcribe_stream()` for streaming
-- Uses Modal volumes to cache the Whisper model at `/models` to avoid redownloading
+- Uses Modal volumes to cache the model at `/models` to avoid redownloading
 - Container stays warm for `MODAL_CONTAINER_IDLE_TIMEOUT` seconds (default 120s) to reduce cold starts
 
 **api/main.py**:
 - FastAPI application with two transcription endpoints: `/api/transcribe` (non-streaming) and `/api/transcribe/stream` (SSE)
-- Connects to Modal using `modal.Cls.from_name()` to lookup the deployed `WhisperModel` class
+- Connects to Modal using `modal.Cls.from_name()` to lookup the deployed model class
 - Audio validation happens before sending to Modal to save GPU costs
 - SSE streaming converts Modal's synchronous generator to async for FastAPI
 
 **utils/audio.py**:
 - Audio validation pipeline: file size → format → duration → preprocessing
-- Uses FFmpeg to preprocess audio (convert to mono, 16kHz WAV) for optimal Whisper performance
+- Uses FFmpeg to preprocess audio (convert to mono, 24kHz WAV) for optimal Kyutai STT performance
 - All validation happens locally before sending to Modal GPU
 
 **config.py**:
 - Centralized configuration for GPU settings, file limits, and API settings
-- Key settings: `WHISPER_MODEL` (model size), `MODAL_GPU_TYPE` (GPU type), `MAX_FILE_SIZE_MB`, `MAX_DURATION_SECONDS`
+- Key settings: `STT_MODEL_ID` (model ID), `MODAL_GPU_TYPE` (GPU type), `MAX_FILE_SIZE_MB`, `MAX_DURATION_SECONDS`
 
 ## Common Commands
 
@@ -107,8 +108,8 @@ curl -X POST "http://localhost:8000/api/transcribe/stream" -F "file=@audio.mp3"
 
 The FastAPI server connects to Modal using the deployed app name:
 ```python
-WhisperModel = modal.Cls.from_name(config.MODAL_APP_NAME, "WhisperModel")
-model = WhisperModel()
+STTModel = modal.Cls.from_name(config.MODAL_APP_NAME, "KyutaiSTTModel")
+model = STTModel()
 result = model.transcribe.remote(audio_bytes)
 ```
 
@@ -118,7 +119,7 @@ The Modal app MUST be deployed before running the FastAPI server, otherwise you'
 
 All audio goes through preprocessing before transcription:
 1. **Validation**: Check file size, format, and duration (utils/audio.py)
-2. **Conversion**: FFmpeg converts to mono, 16kHz WAV (Whisper's native format)
+2. **Conversion**: FFmpeg converts to mono, 24kHz WAV (Kyutai STT's native format)
 3. **Transmission**: Send preprocessed bytes to Modal GPU
 
 This preprocessing happens in the FastAPI layer, not on Modal, to keep GPU time minimal and reduce costs.
@@ -135,15 +136,13 @@ The streaming endpoint uses a layered approach:
 
 GPU costs are ~$0.006 per minute of audio. Optimization strategies:
 - `MODAL_CONTAINER_IDLE_TIMEOUT` keeps containers warm to reduce cold starts (20-30s)
-- `WHISPER_FP16=True` enables half-precision for 2x faster processing
 - Audio preprocessing happens locally to minimize GPU time
-- Smaller models (base/small) can be used for less critical use cases
 
 ## Configuration Changes
 
-To change Whisper model or GPU type, edit `config.py`:
+To change the STT model or GPU type, edit `config.py`:
 ```python
-WHISPER_MODEL = "large"  # Options: tiny, base, small, medium, large
+STT_MODEL_ID = "kyutai/stt-2.6b-en-trfs"  # HuggingFace model ID
 MODAL_GPU_TYPE = "L4"    # Options: L4, A10G, T4
 ```
 
@@ -160,7 +159,7 @@ Then redeploy Modal: `py -m modal deploy modal_app/app.py`
 **Critical Python packages**:
 - `modal`: Serverless GPU infrastructure
 - `fastapi` + `uvicorn`: Web framework and ASGI server
-- `openai-whisper`: Transcription model (runs on Modal GPU)
+- `transformers>=4.53.0`: Kyutai STT model (runs on Modal GPU)
 - `torch` + `torchaudio`: ML framework (runs on Modal GPU)
 - `ffmpeg-python`: Audio preprocessing (runs locally)
 - `sse-starlette`: Server-Sent Events support
@@ -169,8 +168,8 @@ Then redeploy Modal: `py -m modal deploy modal_app/app.py`
 
 **"Modal service unavailable"**: The Modal app isn't deployed. Run `py -m modal deploy modal_app/app.py`.
 
-**Slow first request**: Cold start takes 20-30s to download model and spin up GPU. Increase `MODAL_CONTAINER_IDLE_TIMEOUT` to keep containers warm longer.
+**Slow first request**: Cold start takes 30-60s to download model and spin up GPU. Increase `MODAL_CONTAINER_IDLE_TIMEOUT` to keep containers warm longer.
 
 **Audio validation errors**: Check that FFmpeg is installed locally (`ffmpeg -version`). The API server needs FFmpeg to preprocess audio.
 
-**GPU out of memory**: Whisper Large needs ~10GB VRAM. Switch to `medium` or `small` model in config.py if using smaller GPUs.
+**GPU out of memory**: Kyutai STT 2.6B needs ~12-15GB VRAM. Ensure you're using an L4 or better GPU.

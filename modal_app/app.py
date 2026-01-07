@@ -1,4 +1,4 @@
-"""Modal app with Whisper transcription service."""
+"""Modal app with Kyutai STT transcription service."""
 
 import io
 import json
@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import config
 
 # Create the container image with all required dependencies
-whisper_image = (
+stt_image = (
     modal.Image.debian_slim(python_version="3.11")
     # Install system dependencies for audio processing
     .apt_install(
@@ -22,11 +22,13 @@ whisper_image = (
     )
     # Install Python packages for ML and audio
     .pip_install(
-        "openai-whisper>=20231117",
         "torch>=2.1.0",
         "torchaudio>=2.1.0",
+        "transformers>=4.53.0",
+        "accelerate>=0.30.0",
         "ffmpeg-python>=0.2.0",
         "numpy>=1.24.0",
+        "soundfile>=0.12.0",
     )
     # Add config file to the image
     .add_local_file(
@@ -43,7 +45,7 @@ volume = modal.Volume.from_name(config.MODAL_VOLUME_NAME, create_if_missing=True
 
 # Build decorator arguments based on optimization flags
 decorator_kwargs = {
-    "image": whisper_image,
+    "image": stt_image,
     "gpu": config.MODAL_GPU_TYPE,
     "scaledown_window": (
         config.EXTENDED_IDLE_TIMEOUT_SECONDS
@@ -63,7 +65,7 @@ print(f"Container idle timeout: {decorator_kwargs['scaledown_window']}s")
 # Add CPU memory snapshot if enabled
 if config.ENABLE_CPU_MEMORY_SNAPSHOT:
     decorator_kwargs["enable_memory_snapshot"] = True
-    print(f"✓ CPU Memory Snapshots: ENABLED")
+    print(f"CPU Memory Snapshots: ENABLED")
 
 # Add GPU memory snapshot if enabled (requires CPU snapshots)
 if config.ENABLE_GPU_MEMORY_SNAPSHOT:
@@ -72,48 +74,59 @@ if config.ENABLE_GPU_MEMORY_SNAPSHOT:
             "ENABLE_GPU_MEMORY_SNAPSHOT requires ENABLE_CPU_MEMORY_SNAPSHOT to be True"
         )
     decorator_kwargs["experimental_options"] = {"enable_gpu_snapshot": True}
-    print(f"✓ GPU Memory Snapshots: ENABLED (Experimental)")
+    print(f"GPU Memory Snapshots: ENABLED (Experimental)")
+
 
 @app.cls(**decorator_kwargs)
-class WhisperModel:
-    """Whisper model class for GPU-accelerated transcription."""
+class KyutaiSTTModel:
+    """Kyutai STT model class for GPU-accelerated transcription."""
 
     @modal.enter(snap=config.ENABLE_CPU_MEMORY_SNAPSHOT or config.ENABLE_GPU_MEMORY_SNAPSHOT)
     def load_model(self):
-        """Load Whisper model once per container (runs on container startup)."""
-        import whisper
+        """Load Kyutai STT model once per container (runs on container startup)."""
         import torch
         import time
+        from transformers import KyutaiSpeechToTextProcessor, KyutaiSpeechToTextForConditionalGeneration
 
         start_time = time.time()
-        print(f"Loading Whisper {config.WHISPER_MODEL} model...")
+        print(f"Loading Kyutai STT model: {config.STT_MODEL_ID}...")
 
-        # Load model with GPU acceleration
-        self.model = whisper.load_model(
-            config.WHISPER_MODEL,
-            device=config.WHISPER_DEVICE,
-            download_root="/models",
+        # Set cache directory to Modal volume
+        cache_dir = "/models/huggingface"
+
+        # Load processor and model
+        self.processor = KyutaiSpeechToTextProcessor.from_pretrained(
+            config.STT_MODEL_ID,
+            cache_dir=cache_dir,
+        )
+
+        self.model = KyutaiSpeechToTextForConditionalGeneration.from_pretrained(
+            config.STT_MODEL_ID,
+            cache_dir=cache_dir,
+            device_map=config.STT_DEVICE,
+            torch_dtype=config.STT_DTYPE,
         )
 
         load_time = time.time() - start_time
-        print(f"Model loaded successfully on {config.WHISPER_DEVICE} in {load_time:.2f}s")
+        print(f"Model loaded successfully on {config.STT_DEVICE} in {load_time:.2f}s")
 
         # Optional: Warm up model with dummy forward pass
-        # This compiles CUDA kernels which will be captured in GPU snapshots
         if config.ENABLE_MODEL_WARMUP:
             print("Warming up model with dummy forward pass...")
             warmup_start = time.time()
 
             import numpy as np
-            # Create 1 second of silence at 16kHz (Whisper's native sample rate)
-            dummy_audio = np.zeros(16000, dtype=np.float32)
+            # Create 1 second of silence at 24kHz (Kyutai's native sample rate)
+            dummy_audio = np.zeros(config.SAMPLE_RATE, dtype=np.float32)
 
             # Run transcription to compile kernels
-            _ = self.model.transcribe(
+            inputs = self.processor(
                 dummy_audio,
-                fp16=config.WHISPER_FP16,
-                verbose=False,
+                sampling_rate=config.SAMPLE_RATE,
+                return_tensors="pt",
             )
+            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+            _ = self.model.generate(**inputs)
 
             warmup_time = time.time() - warmup_start
             print(f"Model warm-up completed in {warmup_time:.2f}s")
@@ -123,11 +136,27 @@ class WhisperModel:
 
         # Print optimization status
         if config.ENABLE_CPU_MEMORY_SNAPSHOT:
-            print("→ This state will be captured in CPU memory snapshot")
+            print("-> This state will be captured in CPU memory snapshot")
         if config.ENABLE_GPU_MEMORY_SNAPSHOT:
-            print("→ GPU state (including loaded model) will be captured in snapshot")
-        if config.ENABLE_MODEL_WARMUP and config.ENABLE_GPU_MEMORY_SNAPSHOT:
-            print("→ Compiled CUDA kernels will be captured in GPU snapshot")
+            print("-> GPU state (including loaded model) will be captured in snapshot")
+
+    def _load_audio(self, audio_bytes: bytes) -> tuple:
+        """Load audio from bytes and return numpy array with sample rate."""
+        import soundfile as sf
+        import numpy as np
+        import io
+
+        # Read audio file
+        audio_data, sample_rate = sf.read(io.BytesIO(audio_bytes))
+
+        # Convert to mono if stereo
+        if len(audio_data.shape) > 1:
+            audio_data = audio_data.mean(axis=1)
+
+        # Ensure float32
+        audio_data = audio_data.astype(np.float32)
+
+        return audio_data, sample_rate
 
     @modal.method()
     def transcribe(self, audio_bytes: bytes) -> Dict[str, Any]:
@@ -135,45 +164,43 @@ class WhisperModel:
         Transcribe audio file and return complete results.
 
         Args:
-            audio_bytes: Raw audio file bytes
+            audio_bytes: Raw audio file bytes (should be 24kHz WAV)
 
         Returns:
             Dictionary with transcription results
         """
-        import whisper
-        import tempfile
-        import os
+        import torch
 
-        # Write bytes to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".audio") as tmp_file:
-            tmp_file.write(audio_bytes)
-            tmp_path = tmp_file.name
+        # Load audio
+        audio_data, sample_rate = self._load_audio(audio_bytes)
 
-        try:
-            # Transcribe audio
-            result = self.model.transcribe(
-                tmp_path,
-                fp16=config.WHISPER_FP16,
-                verbose=False,
-            )
+        # Calculate duration from audio length
+        duration = len(audio_data) / sample_rate
 
-            return {
-                "text": result["text"],
-                "language": result.get("language", "unknown"),
-                "segments": [
-                    {
-                        "id": seg["id"],
-                        "start": seg["start"],
-                        "end": seg["end"],
-                        "text": seg["text"],
-                    }
-                    for seg in result.get("segments", [])
-                ],
-            }
-        finally:
-            # Cleanup temporary file
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+        # Process audio through processor (single audio - no return_tensors needed)
+        inputs = self.processor(audio_data)
+        inputs = inputs.to(self.model.device)
+
+        # Generate transcription
+        with torch.no_grad():
+            output_tokens = self.model.generate(**inputs)
+
+        # Decode output
+        transcription = self.processor.batch_decode(output_tokens, skip_special_tokens=True)
+        text = transcription[0] if transcription else ""
+
+        return {
+            "text": text,
+            "language": "en",  # Kyutai stt-2.6b-en is English only
+            "segments": [
+                {
+                    "id": 0,
+                    "start": 0.0,
+                    "end": duration,
+                    "text": text,
+                }
+            ],
+        }
 
     @modal.method()
     def transcribe_stream(self, audio_bytes: bytes, actual_duration: float = 0.0) -> Iterator[str]:
@@ -181,54 +208,57 @@ class WhisperModel:
         Transcribe audio file and yield segments as they complete.
 
         Args:
-            audio_bytes: Raw audio file bytes
+            audio_bytes: Raw audio file bytes (should be 24kHz WAV)
             actual_duration: Actual duration of audio in seconds (from ffmpeg)
 
         Yields:
             JSON strings with segment data
         """
-        import whisper
-        import tempfile
-        import os
-
-        # Write bytes to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".audio") as tmp_file:
-            tmp_file.write(audio_bytes)
-            tmp_path = tmp_file.name
+        import torch
 
         try:
-            # Transcribe audio
-            result = self.model.transcribe(
-                tmp_path,
-                fp16=config.WHISPER_FP16,
-                verbose=False,
-            )
+            # Load audio
+            audio_data, sample_rate = self._load_audio(audio_bytes)
+
+            # Calculate duration
+            duration = actual_duration if actual_duration > 0 else len(audio_data) / sample_rate
 
             # Yield metadata first
-            # Use actual_duration if provided, otherwise fallback to Whisper's last segment end time
-            duration = actual_duration if actual_duration > 0 else (
-                result.get("segments", [{}])[-1].get("end", 0) if result.get("segments") else 0
-            )
             yield json.dumps({
                 "type": "metadata",
-                "language": result.get("language", "unknown"),
+                "language": "en",  # Kyutai stt-2.6b-en is English only
                 "duration": duration,
             })
 
-            # Yield each segment as it's processed
-            for segment in result.get("segments", []):
-                yield json.dumps({
-                    "type": "segment",
-                    "id": segment["id"],
-                    "start": segment["start"],
-                    "end": segment["end"],
-                    "text": segment["text"],
-                })
+            # Process audio through processor
+            inputs = self.processor(
+                audio_data,
+                sampling_rate=sample_rate,
+                return_tensors="pt",
+            )
+            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+
+            # Generate transcription
+            with torch.no_grad():
+                output_tokens = self.model.generate(**inputs)
+
+            # Decode output
+            transcription = self.processor.batch_decode(output_tokens, skip_special_tokens=True)
+            text = transcription[0] if transcription else ""
+
+            # Yield single segment (Kyutai doesn't provide segment-level timestamps by default)
+            yield json.dumps({
+                "type": "segment",
+                "id": 0,
+                "start": 0.0,
+                "end": duration,
+                "text": text,
+            })
 
             # Yield final complete text
             yield json.dumps({
                 "type": "complete",
-                "text": result["text"],
+                "text": text,
             })
 
         except Exception as e:
@@ -237,10 +267,6 @@ class WhisperModel:
                 "type": "error",
                 "error": str(e),
             })
-        finally:
-            # Cleanup temporary file
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
 
 
 @app.local_entrypoint()
@@ -262,7 +288,7 @@ def main():
     print("-" * 50)
 
     # Test streaming transcription
-    model = WhisperModel()
+    model = KyutaiSTTModel()
     for chunk in model.transcribe_stream.remote(audio_bytes):
         data = json.loads(chunk)
         if data["type"] == "segment":

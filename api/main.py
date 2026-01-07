@@ -103,8 +103,8 @@ async def transcribe_audio(
             import modal
 
             # Lookup the deployed class and method
-            WhisperModel = modal.Cls.from_name(config.MODAL_APP_NAME, "WhisperModel")
-            model = WhisperModel()
+            STTModel = modal.Cls.from_name(config.MODAL_APP_NAME, "KyutaiSTTModel")
+            model = STTModel()
         except Exception as e:
             raise HTTPException(
                 status_code=503,
@@ -169,8 +169,8 @@ async def transcribe_audio_stream(
             import json
 
             # Lookup the deployed class
-            WhisperModel = modal.Cls.from_name(config.MODAL_APP_NAME, "WhisperModel")
-            model = WhisperModel()
+            STTModel = modal.Cls.from_name(config.MODAL_APP_NAME, "KyutaiSTTModel")
+            model = STTModel()
         except Exception as e:
             raise HTTPException(
                 status_code=503,

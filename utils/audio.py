@@ -126,7 +126,7 @@ def preprocess_audio(audio_bytes: bytes) -> bytes:
     """
     Preprocess audio file for optimal transcription.
     - Convert to WAV format
-    - Downsample to 16kHz (Whisper's native rate)
+    - Resample to 24kHz (Kyutai STT's native rate)
     - Convert to mono
 
     Args:
