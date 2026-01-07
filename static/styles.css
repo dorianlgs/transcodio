@@ -270,13 +270,24 @@ body {
     line-height: 1.6;
 }
 
-.full-text {
+.full-text-container {
     padding: 1.5rem;
     background: var(--bg-tertiary);
     border-radius: 0.5rem;
+    position: relative;
+}
+
+.full-text {
     line-height: 1.8;
     color: var(--text-primary);
     white-space: pre-wrap;
+    margin-bottom: 1rem;
+}
+
+.copy-inside {
+    margin-top: 1rem;
+    width: 100%;
+    justify-content: center;
 }
 
 /* Buttons */

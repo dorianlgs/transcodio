@@ -239,12 +239,18 @@ class ParakeetSTTModel:
 
             print(f"Detected {len(silent_windows)} silent windows")
 
+            # Accumulate all segment texts for final transcription
+            all_segments = []
+
             # If no silence detected, transcribe entire audio at once
             if not silent_windows:
                 audio_float = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
                 with NoStdStreams():
                     output = self.model.transcribe([audio_float])
                 text = output[0].text if output and hasattr(output[0], 'text') else ""
+
+                if text.strip():
+                    all_segments.append(text)
 
                 yield json.dumps({
                     "type": "segment",
@@ -282,6 +288,8 @@ class ParakeetSTTModel:
                         start_time = current_pos / 1000.0  # ms → seconds
                         end_time = window_end / 1000.0
 
+                        all_segments.append(text)
+
                         yield json.dumps({
                             "type": "segment",
                             "id": segment_id,
@@ -308,6 +316,8 @@ class ParakeetSTTModel:
                     text = output[0].text if output and hasattr(output[0], 'text') else ""
 
                     if text.strip():
+                        all_segments.append(text)
+
                         yield json.dumps({
                             "type": "segment",
                             "id": segment_id,
@@ -316,10 +326,11 @@ class ParakeetSTTModel:
                             "text": text,
                         })
 
-            # Yield completion
+            # Yield completion with full transcription
+            full_transcription = " ".join(all_segments)
             yield json.dumps({
                 "type": "complete",
-                "text": "Transcription complete",
+                "text": full_transcription,
             })
 
         except Exception as e:
