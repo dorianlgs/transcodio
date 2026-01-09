@@ -156,6 +156,11 @@ The streaming endpoint uses **real progressive streaming** with silence detectio
 - **Before (Kyutai)**: Transcribed entire audio, yielded single segment at end ("fake streaming")
 - **Now (Parakeet)**: Detects natural pauses, yields segments progressively as they complete (**real streaming**)
 
+**Recent Improvements**:
+- **Full transcription in completion**: The final `complete` event now includes the complete transcription text assembled from all segments, making it easier to retrieve the entire result
+- **Segment accumulation**: All segment texts are accumulated during streaming and returned together in the completion event
+- **UI enhancements**: Copy button relocated inside the full text container for better user experience and more intuitive access
+
 ### Silence Detection Tuning
 
 Adjust these parameters in `config.py` to control segmentation granularity:
@@ -164,6 +169,12 @@ Adjust these parameters in `config.py` to control segmentation granularity:
 SILENCE_THRESHOLD_DB = -40   # Lower = more sensitive (detects softer pauses)
 SILENCE_MIN_LENGTH_MS = 700  # Lower = detects shorter pauses
 ```
+
+**Current Configuration**:
+The default values have been optimized for balanced performance:
+- **-40 dB threshold**: Provides a good balance between detecting natural pauses and avoiding over-segmentation
+- **700ms minimum silence**: Catches most natural speech pauses without creating too many fragments
+- These values were tuned from initial settings (-35 dB / 400ms) to reduce excessive segmentation while maintaining responsiveness
 
 **Guidelines**:
 - **Fewer segments** (longer segments): Increase threshold to -45, increase min_length to 1000ms
