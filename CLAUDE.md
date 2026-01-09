@@ -149,7 +149,7 @@ The streaming endpoint uses **real progressive streaming** with silence detectio
 3. **Browser receives SSE events**:
    - `metadata`: Audio duration and language
    - `progress`: Each transcribed segment (yields multiple times)
-   - `complete`: Transcription finished
+   - `complete`: Transcription finished (includes full transcription text from all segments)
    - `error`: Any errors during processing
 
 **Key Difference from Previous Implementation**:
