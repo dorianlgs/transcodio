@@ -22,7 +22,6 @@ const toast = document.getElementById('toast');
 let currentTranscription = '';
 let currentFile = null;
 let currentSegments = []; // Store segments for subtitle export
-let currentAudioURL = null; // Store audio object URL for cleanup
 
 // Initialize
 function init() {
@@ -89,7 +88,9 @@ function handleDrop(event) {
 
 // File Processing
 async function processFile(file) {
+    // Store the file reference BEFORE creating FormData
     currentFile = file;
+    console.log('Stored file reference:', file.name, file.type, file.size);
 
     // Validate file
     if (!validateFile(file)) {
@@ -102,7 +103,7 @@ async function processFile(file) {
     progressFill.style.width = '10%';
 
     try {
-        // Create form data
+        // Create form data - this does NOT consume the file
         const formData = new FormData();
         formData.append('file', file);
 
@@ -283,16 +284,19 @@ function handleStreamEvent(eventType, data) {
             fullText.textContent = data.text;
             progressFill.style.width = '100%';
 
-            // Set audio player source
-            if (currentFile) {
-                // Revoke previous URL if exists
-                if (currentAudioURL) {
-                    URL.revokeObjectURL(currentAudioURL);
-                }
-                // Create new object URL for the uploaded file
-                currentAudioURL = URL.createObjectURL(currentFile);
-                audioPlayer.src = currentAudioURL;
+            // Set audio player source using the preprocessed audio from backend
+            console.log('Setting up audio player...');
+            console.log('Audio session ID:', data.audio_session_id);
+
+            if (data.audio_session_id) {
+                // Use the preprocessed audio from the backend (16kHz mono WAV)
+                const audioURL = `/api/audio/${data.audio_session_id}`;
+                console.log('Audio URL:', audioURL);
+                audioPlayer.src = audioURL;
                 audioPlayer.load(); // Force the browser to load the audio metadata
+                console.log('Audio player configured with preprocessed audio');
+            } else {
+                console.warn('No audio session ID provided, cannot load audio');
             }
 
             // Show results section now
@@ -483,12 +487,9 @@ function resetApp() {
     fullText.textContent = '';
     progressFill.style.width = '0%';
 
-    // Clean up audio player
-    if (currentAudioURL) {
-        URL.revokeObjectURL(currentAudioURL);
-        currentAudioURL = null;
-    }
+    // Reset audio player
     audioPlayer.src = '';
+    audioPlayer.load();
 }
 
 // Initialize app

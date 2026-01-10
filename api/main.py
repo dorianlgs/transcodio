@@ -4,11 +4,13 @@ import sys
 from pathlib import Path
 from typing import Optional
 import asyncio
+import uuid
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, Response
 from sse_starlette.sse import EventSourceResponse
 
 # Add parent directory to path for imports
@@ -22,6 +24,16 @@ from api.models import (
 )
 from api.streaming import transcription_event_stream
 from utils.audio import validate_audio_file, AudioValidationError
+
+# Simple in-memory cache for audio (session_id -> (audio_bytes, content_type, filename, expiry_time))
+audio_cache = {}
+
+def cleanup_expired_audio():
+    """Remove expired audio from cache."""
+    now = datetime.now()
+    expired_keys = [k for k, v in audio_cache.items() if v[3] < now]
+    for key in expired_keys:
+        del audio_cache[key]
 
 # Create FastAPI app
 app = FastAPI(
@@ -63,6 +75,42 @@ async def health_check():
     return HealthResponse(
         status="healthy",
         version=config.API_VERSION,
+    )
+
+
+@app.get("/api/audio/{session_id}")
+async def get_audio(session_id: str):
+    """
+    Retrieve original audio file by session ID.
+
+    Args:
+        session_id: Session ID returned in the transcription completion event
+
+    Returns:
+        Original audio file in its uploaded format
+
+    Raises:
+        HTTPException: If session ID is invalid or expired
+    """
+    # Clean up expired entries first
+    cleanup_expired_audio()
+
+    if session_id not in audio_cache:
+        raise HTTPException(
+            status_code=404,
+            detail="Audio session not found or expired"
+        )
+
+    audio_bytes, content_type, filename, expiry = audio_cache[session_id]
+
+    # Return audio file with appropriate headers and original content type
+    return Response(
+        content=audio_bytes,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f"inline; filename={filename}",
+            "Accept-Ranges": "bytes",
+        }
     )
 
 
@@ -163,6 +211,19 @@ async def transcribe_audio_stream(
         except AudioValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+        # Generate session ID and cache the ORIGINAL audio file
+        session_id = str(uuid.uuid4())
+        # Cache for 1 hour - store original audio for playback
+        expiry_time = datetime.now() + timedelta(hours=1)
+        audio_cache[session_id] = (
+            audio_bytes,  # Original uploaded file
+            file.content_type or "application/octet-stream",  # Original content type
+            file.filename or "audio",  # Original filename
+            expiry_time
+        )
+        # Clean up expired entries
+        cleanup_expired_audio()
+
         # Import Modal and lookup function
         try:
             import modal
@@ -225,6 +286,7 @@ async def transcribe_audio_stream(
                             "event": "complete",
                             "data": json.dumps({
                                 "text": segment_data.get("text"),
+                                "audio_session_id": session_id,
                             })
                         }
 
