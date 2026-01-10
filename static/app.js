@@ -10,6 +10,7 @@ const segments = document.getElementById('segments');
 const fullText = document.getElementById('fullText');
 const duration = document.getElementById('duration');
 const language = document.getElementById('language');
+const audioPlayer = document.getElementById('audioPlayer');
 const copyBtn = document.getElementById('copyBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const downloadSrtBtn = document.getElementById('downloadSrtBtn');
@@ -21,6 +22,7 @@ const toast = document.getElementById('toast');
 let currentTranscription = '';
 let currentFile = null;
 let currentSegments = []; // Store segments for subtitle export
+let currentAudioURL = null; // Store audio object URL for cleanup
 
 // Initialize
 function init() {
@@ -39,6 +41,15 @@ function setupEventListeners() {
     uploadArea.addEventListener('dragover', handleDragOver);
     uploadArea.addEventListener('dragleave', handleDragLeave);
     uploadArea.addEventListener('drop', handleDrop);
+
+    // Audio player events
+    audioPlayer.addEventListener('loadedmetadata', () => {
+        console.log('Audio loaded successfully, duration:', audioPlayer.duration);
+    });
+    audioPlayer.addEventListener('error', (e) => {
+        console.error('Audio player error:', e, audioPlayer.error);
+        showToast('Could not load audio file for playback', 'error');
+    });
 
     // Button clicks
     copyBtn.addEventListener('click', copyToClipboard);
@@ -271,6 +282,19 @@ function handleStreamEvent(eventType, data) {
             currentTranscription = data.text;
             fullText.textContent = data.text;
             progressFill.style.width = '100%';
+
+            // Set audio player source
+            if (currentFile) {
+                // Revoke previous URL if exists
+                if (currentAudioURL) {
+                    URL.revokeObjectURL(currentAudioURL);
+                }
+                // Create new object URL for the uploaded file
+                currentAudioURL = URL.createObjectURL(currentFile);
+                audioPlayer.src = currentAudioURL;
+                audioPlayer.load(); // Force the browser to load the audio metadata
+            }
+
             // Show results section now
             showSection('results');
             showToast('Transcription completed!', 'success');
@@ -458,6 +482,13 @@ function resetApp() {
     segments.innerHTML = '';
     fullText.textContent = '';
     progressFill.style.width = '0%';
+
+    // Clean up audio player
+    if (currentAudioURL) {
+        URL.revokeObjectURL(currentAudioURL);
+        currentAudioURL = null;
+    }
+    audioPlayer.src = '';
 }
 
 // Initialize app
