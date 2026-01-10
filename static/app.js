@@ -43,7 +43,6 @@ function setupEventListeners() {
 
     // Audio player events
     audioPlayer.addEventListener('loadedmetadata', () => {
-        console.log('Audio loaded successfully, duration:', audioPlayer.duration);
     });
     audioPlayer.addEventListener('error', (e) => {
         console.error('Audio player error:', e, audioPlayer.error);
@@ -90,7 +89,6 @@ function handleDrop(event) {
 async function processFile(file) {
     // Store the file reference BEFORE creating FormData
     currentFile = file;
-    console.log('Stored file reference:', file.name, file.type, file.size);
 
     // Validate file
     if (!validateFile(file)) {
@@ -147,15 +145,10 @@ async function transcribeWithStreaming(formData) {
     currentSegments = [];
 
     try {
-        console.log('Sending transcription request...');
         const response = await fetch('/api/transcribe/stream', {
             method: 'POST',
             body: formData,
         });
-
-        console.log('Response received:', response.status);
-        console.log('Response body:', response.body);
-        console.log('Response headers:', response.headers);
 
         if (!response.ok) {
             const error = await response.json();
@@ -166,38 +159,25 @@ async function transcribeWithStreaming(formData) {
         showSection('processing');
         processingStatus.textContent = 'Transcribing...';
 
-        console.log('About to get reader...');
-
         if (!response.body) {
             throw new Error('Response body is null');
         }
 
         // Process SSE stream
         const reader = response.body.getReader();
-        console.log('Got reader:', reader);
         const decoder = new TextDecoder();
         let buffer = '';
         let eventCount = 0;
 
-        console.log('Starting to read stream...');
-
         while (true) {
-            console.log('Reading next chunk...');
             const { done, value } = await reader.read();
-            console.log('Read result - done:', done, 'value length:', value?.length);
 
             if (done) {
-                console.log('Stream done. Total events:', eventCount);
                 break;
             }
 
             // Decode chunk
             const chunk = decoder.decode(value, { stream: true });
-            console.log('Received chunk (first 200 chars):', chunk.substring(0, 200));
-
-            // Debug: Show actual bytes
-            console.log('Chunk char codes at positions 40-50:',
-                [...chunk.substring(40, 50)].map(c => c.charCodeAt(0)));
 
             buffer += chunk;
 
@@ -205,22 +185,16 @@ async function transcribeWithStreaming(formData) {
             // Normalize line endings first
             const normalizedBuffer = buffer.replace(/\r\n/g, '\n');
             const eventStrings = normalizedBuffer.split('\n\n');
-            console.log('Split into', eventStrings.length, 'parts');
 
             // Last element might be incomplete, keep in buffer
             buffer = eventStrings[eventStrings.length - 1];
-            console.log('Keeping last part in buffer, will process', eventStrings.length - 1, 'events');
 
             // Process all complete events (all except last)
             for (let i = 0; i < eventStrings.length - 1; i++) {
                 const eventText = eventStrings[i];
-                console.log('Event', i, ':', eventText.substring(0, 50), '...');
                 if (!eventText.trim()) {
-                    console.log('Skipping empty event');
                     continue;
                 }
-
-                console.log('Processing event text:', eventText.substring(0, 100));
 
                 const lines = eventText.split('\n');
                 let eventType = 'message';
@@ -236,13 +210,10 @@ async function transcribeWithStreaming(formData) {
 
                 if (eventData) {
                     eventCount++;
-                    console.log('Event #' + eventCount + ':', eventType, eventData.substring(0, 50));
                     handleStreamEvent(eventType, JSON.parse(eventData));
                 }
             }
         }
-
-        console.log('Stream processing complete');
 
     } catch (error) {
         console.error('Streaming error:', error);
@@ -253,7 +224,6 @@ async function transcribeWithStreaming(formData) {
 
 // Handle Stream Events
 function handleStreamEvent(eventType, data) {
-    console.log('Handling event:', eventType, data);
     switch (eventType) {
         case 'metadata':
             // Update metadata
@@ -265,12 +235,10 @@ function handleStreamEvent(eventType, data) {
             }
             processingStatus.textContent = 'Transcribing audio...';
             progressFill.style.width = '40%';
-            console.log('Metadata updated');
             break;
 
         case 'progress':
             // Add segment
-            console.log('Adding segment:', data.text);
             addSegment(data);
             // Update progress (estimate based on time)
             const progress = Math.min(90, 40 + (data.end / 600) * 50);
@@ -279,22 +247,16 @@ function handleStreamEvent(eventType, data) {
 
         case 'complete':
             // Set final text
-            console.log('Transcription complete, showing results');
             currentTranscription = data.text;
             fullText.textContent = data.text;
             progressFill.style.width = '100%';
 
             // Set audio player source using the preprocessed audio from backend
-            console.log('Setting up audio player...');
-            console.log('Audio session ID:', data.audio_session_id);
-
             if (data.audio_session_id) {
                 // Use the preprocessed audio from the backend (16kHz mono WAV)
                 const audioURL = `/api/audio/${data.audio_session_id}`;
-                console.log('Audio URL:', audioURL);
                 audioPlayer.src = audioURL;
                 audioPlayer.load(); // Force the browser to load the audio metadata
-                console.log('Audio player configured with preprocessed audio');
             } else {
                 console.warn('No audio session ID provided, cannot load audio');
             }
