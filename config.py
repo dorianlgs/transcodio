@@ -11,7 +11,7 @@ TEMP_DIR = BASE_DIR / "temp"
 # Audio file limits
 MAX_FILE_SIZE_MB = 100
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-MAX_DURATION_SECONDS = 600  # 10 minutes
+MAX_DURATION_SECONDS = 2000  # ~33 minutes
 
 # Supported audio formats
 SUPPORTED_FORMATS = ["mp3", "wav", "m4a", "flac", "ogg", "webm", "mp4"]
@@ -39,7 +39,7 @@ MODAL_VOLUME_NAME = "parakeet-models"  # Changed from kyutai-stt-models
 MODAL_GPU_TYPE = "L4"  # NVIDIA L4
 MODAL_GPU_COUNT = 1
 MODAL_CONTAINER_IDLE_TIMEOUT = 120  # 2 minutes
-MODAL_TIMEOUT = 600  # 10 minutes max processing time
+MODAL_TIMEOUT = 3000  # 50 minutes max processing time (allows for 33min audio + diarization)
 MODAL_MEMORY_MB = 8192  # 8GB RAM
 
 # ============================================================================
