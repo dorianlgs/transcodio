@@ -101,9 +101,10 @@ DIARIZATION_MODEL = "nvidia/speakerverification_en_titanet_large"  # TitaNet emb
 DIARIZATION_MIN_SPEAKERS = 1  # Minimum speakers to detect
 DIARIZATION_MAX_SPEAKERS = 5  # Maximum speakers to detect (uses silhouette score to find optimal)
 
-# Multi-scale configuration (optimized for speed)
-DIARIZATION_WINDOW_LENGTHS = [1.5, 1.0, 0.5]  # Window lengths in seconds
-DIARIZATION_SHIFT_LENGTH = 0.75  # Shift length in seconds
+# Embedding extraction configuration
+# NOTE: Only the FIRST window length is used (single-scale to avoid multi-scale artifacts)
+DIARIZATION_WINDOW_LENGTHS = [1.5, 1.0, 0.5]  # Window lengths in seconds (only [0] is used)
+DIARIZATION_SHIFT_LENGTH = 0.75  # Shift length in seconds (window overlap)
 
 # Environment variables
 ENV_MODE = os.getenv("ENV", "development")

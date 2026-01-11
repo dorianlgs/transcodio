@@ -9,10 +9,12 @@ Transcodio is a production-ready audio transcription service using NVIDIA's Para
 Key features:
 - GPU-accelerated transcription using NVIDIA L4 GPUs on Modal
 - **Real progressive streaming** with silence detection (yields segments as they complete)
+- **Speaker diarization** using NVIDIA TitaNet for automatic speaker identification
+- **Audio playback** with integrated player using session-based caching
 - FastAPI web server with REST endpoints
 - Audio preprocessing and validation using FFmpeg
 - Support for multiple audio formats (MP3, WAV, M4A, FLAC, OGG, WebM)
-- Subtitle export (SRT/VTT formats)
+- Subtitle export (SRT/VTT formats) with speaker labels
 - Lightweight model (0.6B parameters) for faster inference and lower costs
 
 ## Architecture
@@ -36,15 +38,26 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
 - Uses **NVIDIA NeMo framework** for ASR (Automatic Speech Recognition)
 - Two main methods: `transcribe()` for complete results, `transcribe_stream()` for progressive streaming
 - **Real streaming**: Detects silence boundaries using pydub, transcribes segments progressively
+- **Speaker diarization**: `SpeakerDiarizerModel` class using NVIDIA TitaNet for speaker embeddings
+  - Single-scale embedding extraction (1.5s windows by default, prevents multi-scale artifacts)
+  - Automatic speaker count detection using combined score with complexity penalty
+  - AgglomerativeClustering with cosine distance to identify and label speakers
+  - Complexity penalty (0.15 per speaker) prevents over-segmentation
+  - `align_speakers_to_segments()` function maps speaker labels to transcription segments
 - Uses Modal volumes to cache the model at `/models` to avoid redownloading
 - Container stays warm for `MODAL_CONTAINER_IDLE_TIMEOUT` seconds (default 120s) to reduce cold starts
 - **NoStdStreams** context manager suppresses NeMo's verbose logging
 
 **api/main.py**:
 - FastAPI application with two transcription endpoints: `/api/transcribe` (non-streaming) and `/api/transcribe/stream` (SSE)
-- Connects to Modal using `modal.Cls.from_name()` to lookup the deployed model class (`ParakeetSTTModel`)
+- **Audio session management**: `/api/audio/{session_id}` endpoint serves cached audio for playback
+  - Generates UUID session IDs for each transcription
+  - Caches original uploaded audio files for 1 hour
+  - Automatic cleanup of expired audio cache entries
+- Connects to Modal using `modal.Cls.from_name()` to lookup deployed models (`ParakeetSTTModel`, `SpeakerDiarizerModel`)
 - Audio validation happens before sending to Modal to save GPU costs
 - SSE streaming converts Modal's synchronous generator to async for FastAPI
+- **Speaker diarization integration**: Runs after transcription completes, yields `speakers_ready` event with annotated segments
 
 **utils/audio.py**:
 - Audio validation pipeline: file size → format → duration → preprocessing
@@ -58,6 +71,12 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
   - `SAMPLE_RATE = 16000` (Parakeet's native sample rate)
   - `MODAL_GPU_TYPE` (GPU type), `MAX_FILE_SIZE_MB`, `MAX_DURATION_SECONDS`
   - **Silence detection params**: `SILENCE_THRESHOLD_DB`, `SILENCE_MIN_LENGTH_MS`
+  - **Speaker diarization settings**:
+    - `ENABLE_SPEAKER_DIARIZATION` (feature flag, default: True)
+    - `DIARIZATION_MODEL = "nvidia/speakerverification_en_titanet_large"`
+    - `DIARIZATION_MIN_SPEAKERS`, `DIARIZATION_MAX_SPEAKERS` (default: 1-5)
+    - `DIARIZATION_WINDOW_LENGTHS` (multi-scale windows: [1.5, 1.0, 0.5] seconds)
+    - `DIARIZATION_SHIFT_LENGTH` (default: 0.75 seconds)
 
 ## Common Commands
 
@@ -149,7 +168,8 @@ The streaming endpoint uses **real progressive streaming** with silence detectio
 3. **Browser receives SSE events**:
    - `metadata`: Audio duration and language
    - `progress`: Each transcribed segment (yields multiple times)
-   - `complete`: Transcription finished (includes full transcription text from all segments)
+   - `speakers_ready`: Speaker-annotated segments after diarization completes (optional, if enabled)
+   - `complete`: Transcription finished (includes full transcription text and audio session ID for playback)
    - `error`: Any errors during processing
 
 **Key Difference from Previous Implementation**:
@@ -160,6 +180,27 @@ The streaming endpoint uses **real progressive streaming** with silence detectio
 - **Full transcription in completion**: The final `complete` event now includes the complete transcription text assembled from all segments, making it easier to retrieve the entire result
 - **Segment accumulation**: All segment texts are accumulated during streaming and returned together in the completion event
 - **UI enhancements**: Copy button relocated inside the full text container for better user experience and more intuitive access
+- **Speaker diarization**: Automatic speaker identification integrated into streaming pipeline
+- **Audio playback**: Session-based caching enables audio player functionality
+
+**Complete Streaming Flow with Speaker Diarization**:
+```
+1. User uploads audio → FastAPI validates & preprocesses
+2. Generate session ID, cache original audio
+3. Stream to Modal GPU → Parakeet transcribes with silence detection
+4. Frontend receives progressive segments via SSE (`metadata` → `progress` events)
+5. After transcription completes → TitaNet diarization runs in background
+6. Speaker labels aligned to segments → `speakers_ready` event updates UI
+7. Final `complete` event with full text & audio session ID
+8. Audio player loads using session ID from cache
+9. User can download transcription (TXT), subtitles (SRT/VTT), or listen to audio
+```
+
+This architecture ensures:
+- **Progressive feedback**: Users see segments as they're transcribed (not blocked by diarization)
+- **Non-blocking diarization**: Speaker identification happens asynchronously after transcription
+- **Graceful degradation**: If diarization fails, transcription still succeeds
+- **Audio playback**: Original audio available for listening without re-uploading
 
 ### Silence Detection Tuning
 
@@ -182,6 +223,72 @@ The default values have been optimized for balanced performance:
 - **Balanced** (3-5 segments per minute): -40 dB, 700ms (current default)
 
 After changing these values, redeploy: `py -m modal deploy modal_app/app.py`
+
+### Speaker Diarization
+
+The service includes **automatic speaker identification** that runs after transcription completes. This feature uses NVIDIA TitaNet embeddings combined with spectral clustering to identify and label different speakers.
+
+**How it works:**
+1. **Single-scale embedding extraction**: Audio is analyzed using 1.5s windows with 0.75s overlap (single-scale to avoid multi-scale artifacts)
+2. **Speaker embedding**: TitaNet model generates normalized speaker embeddings for each audio window
+3. **Automatic speaker detection**: Combined scoring with complexity penalty determines optimal number of speakers (1-5 by default)
+4. **Clustering**: AgglomerativeClustering with cosine distance groups similar embeddings to identify unique speakers
+5. **Alignment**: Speaker labels are mapped to transcription segments based on temporal overlap
+6. **Frontend display**: Segments show speaker badges (e.g., "Speaker 1", "Speaker 2")
+7. **Subtitle export**: Speaker labels are included in SRT/VTT downloads
+
+**Configuration** (in `config.py`):
+```python
+ENABLE_SPEAKER_DIARIZATION = True  # Toggle feature on/off
+DIARIZATION_MODEL = "nvidia/speakerverification_en_titanet_large"
+DIARIZATION_MIN_SPEAKERS = 1  # Minimum speakers to detect
+DIARIZATION_MAX_SPEAKERS = 5  # Maximum speakers (higher = slower)
+DIARIZATION_WINDOW_LENGTHS = [1.5, 1.0, 0.5]  # Only first value used (1.5s window)
+DIARIZATION_SHIFT_LENGTH = 0.75  # Window shift/overlap (seconds)
+```
+
+**Algorithm details:**
+- **Clustering**: AgglomerativeClustering with cosine distance (better for speaker embeddings than euclidean)
+- **Speaker selection**: Combined score = 60% silhouette + 40% Calinski-Harabasz - complexity penalty
+- **Complexity penalty**: 0.15 per additional speaker (prefers simpler explanations per Occam's Razor)
+- **Single-scale**: Uses only the first window length to avoid multi-scale artifacts (previous versions had 3-speaker bias from multi-scale)
+
+**Performance considerations:**
+- Diarization runs **after** transcription completes, so it doesn't block streaming
+- Single-scale approach (1 window size) is faster and more accurate than multi-scale
+- Complexity penalty prevents over-segmentation (fewer false positives)
+- Processing time: ~1-3 seconds for a 1-minute audio file on L4 GPU
+- If diarization fails, transcription still completes successfully (graceful degradation)
+
+**Tuning tips:**
+- **More speakers**: Increase `DIARIZATION_MAX_SPEAKERS` (trades speed for accuracy)
+- **Longer windows**: Change `DIARIZATION_WINDOW_LENGTHS[0]` to `2.0` for better speaker characterization
+- **Shorter windows**: Change to `1.0` for faster processing but less accurate speaker identification
+- **More overlap**: Decrease `DIARIZATION_SHIFT_LENGTH` to `0.5` for smoother speaker transitions
+- **Adjust complexity penalty**: Edit line 519 in `modal_app/app.py` (higher = prefers fewer speakers)
+- **Disable entirely**: Set `ENABLE_SPEAKER_DIARIZATION = False` to skip diarization
+
+After changing these values, redeploy: `py -m modal deploy modal_app/app.py`
+
+### Audio Player
+
+The frontend includes an **integrated audio player** that allows users to listen to the original uploaded audio alongside the transcription.
+
+**How it works:**
+1. **Session management**: Each transcription generates a unique UUID session ID
+2. **Audio caching**: Original uploaded audio is cached server-side for 1 hour
+3. **Playback endpoint**: `/api/audio/{session_id}` serves the cached audio file
+4. **Automatic cleanup**: Expired audio sessions are cleaned up automatically
+5. **Format preservation**: Audio is served in its original format (MP3, WAV, etc.) for best browser compatibility
+
+**Key implementation details:**
+- Audio cache is **in-memory** (simple dict) - suitable for low-traffic scenarios
+- Cache stores **original uploaded files** (not preprocessed 16kHz WAV) for better quality
+- Session expiry: 1 hour after transcription
+- Browser audio player supports seeking, volume control, and playback speed
+- Audio loads automatically when transcription completes
+
+**Note**: For production with high traffic, consider replacing the in-memory cache with Redis or a similar persistent store.
 
 ### Cost Optimization
 
@@ -230,6 +337,8 @@ Redeploy Modal: `py -m modal deploy modal_app/app.py`
 - `numpy<2`: Required for NeMo compatibility
 - `ffmpeg-python`: Audio preprocessing (runs locally)
 - `sse-starlette`: Server-Sent Events support
+- **`scikit-learn>=1.3.0`**: Spectral clustering for speaker diarization
+- **`soundfile>=0.12.1`**: Audio file I/O for diarization
 
 **Modal Container Image**:
 - Base: `nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04`
@@ -255,6 +364,19 @@ ENABLE_GPU_MEMORY_SNAPSHOT = True  # Experimental, 85-90% faster cold starts
 - Too few segments: Decrease `SILENCE_THRESHOLD_DB` and `SILENCE_MIN_LENGTH_MS`
 
 **NeMo verbose logs**: The `NoStdStreams` context manager in `modal_app/app.py` suppresses NeMo's stdout/stderr during transcription. If you need to debug, temporarily remove the `with NoStdStreams():` context.
+
+**Speaker diarization not working**: Check these common issues:
+- Ensure `ENABLE_SPEAKER_DIARIZATION = True` in `config.py`
+- Check Modal logs for diarization errors: `py -m modal app logs transcodio-app`
+- Diarization requires at least ~5-10 seconds of audio with distinct speakers
+- Single-speaker audio will show "Speaker 1" for all segments (this is expected)
+- If diarization fails, transcription still completes (it's non-blocking)
+
+**Audio player not loading**:
+- Check that the audio session ID is being returned in the `complete` event
+- Verify the `/api/audio/{session_id}` endpoint is accessible
+- Audio cache expires after 1 hour - if playback fails, the session may have expired
+- Check browser console for CORS or network errors
 
 ## Model Comparison
 

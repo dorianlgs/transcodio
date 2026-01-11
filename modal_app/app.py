@@ -436,71 +436,95 @@ class SpeakerDiarizerModel:
                 sf.write(tmp.name, audio_array, config.SAMPLE_RATE)
                 audio_path = tmp.name
 
-            # Extract multi-scale embeddings
+            # Extract single-scale embeddings (fixes multi-scale artifact issue)
             embeddings_list = []
             timestamps_list = []
 
-            for window_length in config.DIARIZATION_WINDOW_LENGTHS:
-                window_samples = int(window_length * config.SAMPLE_RATE)
-                shift_samples = int(config.DIARIZATION_SHIFT_LENGTH * config.SAMPLE_RATE)
+            # Use only the first (longest) window length to avoid multi-scale artifacts
+            window_length = config.DIARIZATION_WINDOW_LENGTHS[0]
+            window_samples = int(window_length * config.SAMPLE_RATE)
+            shift_samples = int(config.DIARIZATION_SHIFT_LENGTH * config.SAMPLE_RATE)
 
-                num_windows = max(1, (len(audio_array) - window_samples) // shift_samples + 1)
+            num_windows = max(1, (len(audio_array) - window_samples) // shift_samples + 1)
 
-                for i in range(num_windows):
-                    start_sample = i * shift_samples
-                    end_sample = min(start_sample + window_samples, len(audio_array))
+            for i in range(num_windows):
+                start_sample = i * shift_samples
+                end_sample = min(start_sample + window_samples, len(audio_array))
 
-                    window_audio = audio_array[start_sample:end_sample]
+                window_audio = audio_array[start_sample:end_sample]
 
-                    # Save window to temp file
-                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_win:
-                        sf.write(tmp_win.name, window_audio, config.SAMPLE_RATE)
+                # Skip windows that are too short
+                if len(window_audio) < window_samples * 0.5:
+                    continue
 
-                        # Get embedding
-                        with NoStdStreams():
-                            embedding = self.embedding_model.get_embedding(tmp_win.name)
+                # Save window to temp file
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_win:
+                    sf.write(tmp_win.name, window_audio, config.SAMPLE_RATE)
 
-                        embeddings_list.append(embedding.cpu().numpy().flatten())
-                        timestamps_list.append({
-                            "start": start_sample / config.SAMPLE_RATE,
-                            "end": end_sample / config.SAMPLE_RATE
-                        })
+                    # Get embedding
+                    with NoStdStreams():
+                        embedding = self.embedding_model.get_embedding(tmp_win.name)
 
-                        import os
-                        os.unlink(tmp_win.name)
+                    embeddings_list.append(embedding.cpu().numpy().flatten())
+                    timestamps_list.append({
+                        "start": start_sample / config.SAMPLE_RATE,
+                        "end": end_sample / config.SAMPLE_RATE
+                    })
+
+                    import os
+                    os.unlink(tmp_win.name)
 
             # Cluster embeddings to identify speakers
             embeddings_matrix = np.array(embeddings_list)
 
-            # Determine optimal number of speakers using silhouette score
-            from sklearn.metrics import silhouette_score
+            # Normalize embeddings for cosine similarity
+            from sklearn.preprocessing import normalize
+            embeddings_matrix = normalize(embeddings_matrix)
+
+            # Determine optimal number of speakers using multiple metrics with complexity penalty
+            from sklearn.metrics import silhouette_score, calinski_harabasz_score
+            from sklearn.cluster import AgglomerativeClustering
 
             # Try different numbers of speakers and pick the best
-            max_speakers_to_try = min(config.DIARIZATION_MAX_SPEAKERS, len(embeddings_matrix) // 3)
+            max_speakers_to_try = min(config.DIARIZATION_MAX_SPEAKERS, len(embeddings_matrix) // 5)
             min_speakers_to_try = config.DIARIZATION_MIN_SPEAKERS
 
-            best_score = -1
+            best_score = -np.inf
             best_n_speakers = 1
             best_labels = None
 
             # Only try clustering if we have enough segments
             if len(embeddings_matrix) >= 10 and max_speakers_to_try >= 2:
-                for n in range(min_speakers_to_try, min(max_speakers_to_try + 1, 6)):  # Cap at 5 speakers for speed
+                for n in range(min_speakers_to_try, min(max_speakers_to_try + 1, 6)):  # Cap at 5 speakers
                     try:
-                        clustering = SpectralClustering(
+                        # Use AgglomerativeClustering with cosine distance (better for speaker embeddings)
+                        clustering = AgglomerativeClustering(
                             n_clusters=n,
-                            affinity='nearest_neighbors',
-                            random_state=42
+                            metric='cosine',
+                            linkage='average'
                         )
                         labels = clustering.fit_predict(embeddings_matrix)
 
                         # Calculate silhouette score (measures cluster quality)
-                        score = silhouette_score(embeddings_matrix, labels)
+                        silhouette = silhouette_score(embeddings_matrix, labels, metric='cosine')
 
-                        print(f"Trying {n} speakers: silhouette score = {score:.3f}")
+                        # Calculate Calinski-Harabasz score (higher is better, measures cluster separation)
+                        calinski = calinski_harabasz_score(embeddings_matrix, labels)
 
-                        if score > best_score:
-                            best_score = score
+                        # Normalize calinski to 0-1 range (approximately)
+                        calinski_norm = calinski / (calinski + 100)
+
+                        # Apply complexity penalty: prefer fewer speakers (BIC-inspired)
+                        # Penalty increases with number of speakers
+                        complexity_penalty = 0.15 * (n - 1)  # Each additional speaker costs 0.15 points
+
+                        # Combined score: weighted average of silhouette and calinski, minus penalty
+                        combined_score = (0.6 * silhouette + 0.4 * calinski_norm) - complexity_penalty
+
+                        print(f"Trying {n} speakers: silhouette={silhouette:.3f}, calinski_norm={calinski_norm:.3f}, penalty={complexity_penalty:.3f}, combined={combined_score:.3f}")
+
+                        if combined_score > best_score:
+                            best_score = combined_score
                             best_n_speakers = n
                             best_labels = labels
                     except Exception as e:
@@ -510,6 +534,7 @@ class SpeakerDiarizerModel:
                 if best_labels is not None:
                     speaker_labels = best_labels
                     n_speakers = best_n_speakers
+                    print(f"Selected {n_speakers} speakers with combined score {best_score:.3f}")
                 else:
                     # Fallback: assume single speaker
                     n_speakers = 1
