@@ -472,17 +472,52 @@ class SpeakerDiarizerModel:
             # Cluster embeddings to identify speakers
             embeddings_matrix = np.array(embeddings_list)
 
-            # Determine number of speakers (simple approach: try multiple and pick best)
-            n_speakers = min(config.DIARIZATION_MAX_SPEAKERS, max(config.DIARIZATION_MIN_SPEAKERS,
-                            len(embeddings_matrix) // 10))  # Heuristic: ~10 segments per speaker
+            # Determine optimal number of speakers using silhouette score
+            from sklearn.metrics import silhouette_score
 
-            clustering = SpectralClustering(
-                n_clusters=n_speakers,
-                affinity='nearest_neighbors',
-                random_state=42
-            )
+            # Try different numbers of speakers and pick the best
+            max_speakers_to_try = min(config.DIARIZATION_MAX_SPEAKERS, len(embeddings_matrix) // 3)
+            min_speakers_to_try = config.DIARIZATION_MIN_SPEAKERS
 
-            speaker_labels = clustering.fit_predict(embeddings_matrix)
+            best_score = -1
+            best_n_speakers = 1
+            best_labels = None
+
+            # Only try clustering if we have enough segments
+            if len(embeddings_matrix) >= 10 and max_speakers_to_try >= 2:
+                for n in range(min_speakers_to_try, min(max_speakers_to_try + 1, 6)):  # Cap at 5 speakers for speed
+                    try:
+                        clustering = SpectralClustering(
+                            n_clusters=n,
+                            affinity='nearest_neighbors',
+                            random_state=42
+                        )
+                        labels = clustering.fit_predict(embeddings_matrix)
+
+                        # Calculate silhouette score (measures cluster quality)
+                        score = silhouette_score(embeddings_matrix, labels)
+
+                        print(f"Trying {n} speakers: silhouette score = {score:.3f}")
+
+                        if score > best_score:
+                            best_score = score
+                            best_n_speakers = n
+                            best_labels = labels
+                    except Exception as e:
+                        print(f"Failed to cluster with {n} speakers: {e}")
+                        continue
+
+                if best_labels is not None:
+                    speaker_labels = best_labels
+                    n_speakers = best_n_speakers
+                else:
+                    # Fallback: assume single speaker
+                    n_speakers = 1
+                    speaker_labels = np.zeros(len(embeddings_matrix), dtype=int)
+            else:
+                # Too few segments, assume single speaker
+                n_speakers = 1
+                speaker_labels = np.zeros(len(embeddings_matrix), dtype=int)
 
             # Create speaker timeline by merging consecutive windows with same speaker
             speaker_segments = []

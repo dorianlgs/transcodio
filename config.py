@@ -99,7 +99,7 @@ SILENCE_MIN_LENGTH_MS = 700  # Minimum silence duration in milliseconds (balance
 ENABLE_SPEAKER_DIARIZATION = True  # Feature flag
 DIARIZATION_MODEL = "nvidia/speakerverification_en_titanet_large"  # TitaNet embeddings
 DIARIZATION_MIN_SPEAKERS = 1  # Minimum speakers to detect
-DIARIZATION_MAX_SPEAKERS = 10  # Maximum speakers to detect
+DIARIZATION_MAX_SPEAKERS = 5  # Maximum speakers to detect (uses silhouette score to find optimal)
 
 # Multi-scale configuration (optimized for speed)
 DIARIZATION_WINDOW_LENGTHS = [1.5, 1.0, 0.5]  # Window lengths in seconds
