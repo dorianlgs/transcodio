@@ -11,6 +11,7 @@ class TranscriptionSegment(BaseModel):
     start: float = Field(..., description="Start time in seconds")
     end: float = Field(..., description="End time in seconds")
     text: str = Field(..., description="Transcribed text for this segment")
+    speaker: Optional[str] = Field(None, description="Speaker label (e.g., 'Speaker 1')")
 
 
 class TranscriptionResponse(BaseModel):

@@ -33,6 +33,8 @@ stt_image = (
         "cuda-python==12.8.0",
         "numpy<2",
         "pydub==0.25.1",
+        "scikit-learn>=1.3.0",  # For spectral clustering
+        "soundfile>=0.12.1",    # For audio file I/O
     )
     # Add config file to the image
     .add_local_file(
@@ -97,6 +99,48 @@ class NoStdStreams:
     def __exit__(self, exc_type, exc_value, traceback):
         sys.stdout, sys.stderr = self._stdout, self._stderr
         self.devnull.close()
+
+
+def align_speakers_to_segments(transcription_segments: list, speaker_timeline: list) -> list:
+    """
+    Assign speaker labels to transcription segments based on maximum overlap.
+
+    Args:
+        transcription_segments: List of dicts with {id, start, end, text}
+        speaker_timeline: List of dicts with {start, end, speaker}
+
+    Returns:
+        List of segments with speaker field added
+    """
+    def calculate_overlap(range1, range2):
+        """Calculate overlap duration between two time ranges."""
+        start1, end1 = range1
+        start2, end2 = range2
+        overlap_start = max(start1, start2)
+        overlap_end = min(end1, end2)
+        return max(0, overlap_end - overlap_start)
+
+    for segment in transcription_segments:
+        max_overlap = 0
+        assigned_speaker = None
+
+        for speaker_seg in speaker_timeline:
+            overlap = calculate_overlap(
+                (segment["start"], segment["end"]),
+                (speaker_seg["start"], speaker_seg["end"])
+            )
+
+            if overlap > max_overlap:
+                max_overlap = overlap
+                assigned_speaker = speaker_seg["speaker"]
+
+        # Assign speaker label (convert to "Speaker 1", "Speaker 2", etc.)
+        if assigned_speaker is not None:
+            segment["speaker"] = f"Speaker {assigned_speaker + 1}"
+        else:
+            segment["speaker"] = "Speaker 1"  # Fallback for no overlap
+
+    return transcription_segments
 
 
 @app.cls(**decorator_kwargs)
@@ -341,6 +385,146 @@ class ParakeetSTTModel:
                 "type": "error",
                 "error": str(e),
             })
+
+
+@app.cls(**decorator_kwargs)
+class SpeakerDiarizerModel:
+    """NVIDIA TitaNet + clustering for speaker diarization."""
+
+    @modal.enter(snap=config.ENABLE_CPU_MEMORY_SNAPSHOT or config.ENABLE_GPU_MEMORY_SNAPSHOT)
+    def load_model(self):
+        """Load TitaNet speaker embedding model."""
+        import logging
+        import nemo.collections.asr as nemo_asr
+        import time
+
+        start_time = time.time()
+        logging.getLogger("nemo_logger").setLevel(logging.CRITICAL)
+
+        print(f"Loading TitaNet model: {config.DIARIZATION_MODEL}...")
+
+        self.embedding_model = nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained(
+            model_name=config.DIARIZATION_MODEL
+        )
+
+        load_time = time.time() - start_time
+        print(f"TitaNet model loaded in {load_time:.2f}s")
+
+    @modal.method()
+    def diarize(self, audio_bytes: bytes, duration: float) -> list:
+        """
+        Perform speaker diarization on audio.
+
+        Args:
+            audio_bytes: Raw audio bytes (16-bit PCM, 16kHz, mono WAV)
+            duration: Audio duration in seconds
+
+        Returns:
+            List of speaker segments: [{"start": 0.0, "end": 5.2, "speaker": 0}, ...]
+        """
+        import numpy as np
+        from sklearn.cluster import SpectralClustering
+        import tempfile
+        import soundfile as sf
+
+        try:
+            # Convert bytes to numpy array
+            audio_array = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+
+            # Save to temporary WAV file (NeMo requires file input)
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                sf.write(tmp.name, audio_array, config.SAMPLE_RATE)
+                audio_path = tmp.name
+
+            # Extract multi-scale embeddings
+            embeddings_list = []
+            timestamps_list = []
+
+            for window_length in config.DIARIZATION_WINDOW_LENGTHS:
+                window_samples = int(window_length * config.SAMPLE_RATE)
+                shift_samples = int(config.DIARIZATION_SHIFT_LENGTH * config.SAMPLE_RATE)
+
+                num_windows = max(1, (len(audio_array) - window_samples) // shift_samples + 1)
+
+                for i in range(num_windows):
+                    start_sample = i * shift_samples
+                    end_sample = min(start_sample + window_samples, len(audio_array))
+
+                    window_audio = audio_array[start_sample:end_sample]
+
+                    # Save window to temp file
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_win:
+                        sf.write(tmp_win.name, window_audio, config.SAMPLE_RATE)
+
+                        # Get embedding
+                        with NoStdStreams():
+                            embedding = self.embedding_model.get_embedding(tmp_win.name)
+
+                        embeddings_list.append(embedding.cpu().numpy().flatten())
+                        timestamps_list.append({
+                            "start": start_sample / config.SAMPLE_RATE,
+                            "end": end_sample / config.SAMPLE_RATE
+                        })
+
+                        import os
+                        os.unlink(tmp_win.name)
+
+            # Cluster embeddings to identify speakers
+            embeddings_matrix = np.array(embeddings_list)
+
+            # Determine number of speakers (simple approach: try multiple and pick best)
+            n_speakers = min(config.DIARIZATION_MAX_SPEAKERS, max(config.DIARIZATION_MIN_SPEAKERS,
+                            len(embeddings_matrix) // 10))  # Heuristic: ~10 segments per speaker
+
+            clustering = SpectralClustering(
+                n_clusters=n_speakers,
+                affinity='nearest_neighbors',
+                random_state=42
+            )
+
+            speaker_labels = clustering.fit_predict(embeddings_matrix)
+
+            # Create speaker timeline by merging consecutive windows with same speaker
+            speaker_segments = []
+            current_speaker = speaker_labels[0]
+            current_start = timestamps_list[0]["start"]
+            current_end = timestamps_list[0]["end"]
+
+            for i in range(1, len(speaker_labels)):
+                if speaker_labels[i] == current_speaker:
+                    # Extend current segment
+                    current_end = timestamps_list[i]["end"]
+                else:
+                    # Save previous segment and start new one
+                    speaker_segments.append({
+                        "start": current_start,
+                        "end": current_end,
+                        "speaker": int(current_speaker)
+                    })
+                    current_speaker = speaker_labels[i]
+                    current_start = timestamps_list[i]["start"]
+                    current_end = timestamps_list[i]["end"]
+
+            # Add final segment
+            speaker_segments.append({
+                "start": current_start,
+                "end": current_end,
+                "speaker": int(current_speaker)
+            })
+
+            # Clean up temp file
+            import os
+            os.unlink(audio_path)
+
+            print(f"Diarization complete: {len(speaker_segments)} speaker segments, {n_speakers} speakers")
+
+            return speaker_segments
+
+        except Exception as e:
+            import traceback
+            print(f"Diarization error: {e}")
+            print(traceback.format_exc())
+            return []
 
 
 @app.local_entrypoint()

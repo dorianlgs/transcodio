@@ -95,6 +95,16 @@ SAMPLE_RATE = 16000  # Parakeet TDT's native sample rate (16kHz)
 SILENCE_THRESHOLD_DB = -40  # dB threshold for silence detection (balance between -45 and -35)
 SILENCE_MIN_LENGTH_MS = 700  # Minimum silence duration in milliseconds (balance between 1000 and 400)
 
+# Speaker Diarization Configuration
+ENABLE_SPEAKER_DIARIZATION = True  # Feature flag
+DIARIZATION_MODEL = "nvidia/speakerverification_en_titanet_large"  # TitaNet embeddings
+DIARIZATION_MIN_SPEAKERS = 1  # Minimum speakers to detect
+DIARIZATION_MAX_SPEAKERS = 10  # Maximum speakers to detect
+
+# Multi-scale configuration (optimized for speed)
+DIARIZATION_WINDOW_LENGTHS = [1.5, 1.0, 0.5]  # Window lengths in seconds
+DIARIZATION_SHIFT_LENGTH = 0.75  # Shift length in seconds
+
 # Environment variables
 ENV_MODE = os.getenv("ENV", "development")
 DEBUG = ENV_MODE == "development"

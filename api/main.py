@@ -250,6 +250,10 @@ async def transcribe_audio_stream(
                     for segment_json in model.transcribe_stream.remote_gen(preprocessed_bytes, duration):
                         yield segment_json
 
+                # Accumulate segments for diarization
+                segments_data = []
+                full_text = ""
+
                 # Process synchronous generator in async context
                 for segment_json in sync_generator():
                     # Parse and yield as SSE event
@@ -271,6 +275,14 @@ async def transcribe_audio_stream(
                         }
 
                     elif event_type == "segment":
+                        # Accumulate segment for diarization
+                        segments_data.append({
+                            "id": segment_data.get("id"),
+                            "start": segment_data.get("start"),
+                            "end": segment_data.get("end"),
+                            "text": segment_data.get("text"),
+                        })
+
                         yield {
                             "event": "progress",
                             "data": json.dumps({
@@ -282,10 +294,52 @@ async def transcribe_audio_stream(
                         }
 
                     elif event_type == "complete":
+                        full_text = segment_data.get("text", "")
+
+                        # Run speaker diarization if enabled and there are segments
+                        if config.ENABLE_SPEAKER_DIARIZATION and segments_data:
+                            try:
+                                print("Running speaker diarization...")
+                                # Import diarizer from Modal
+                                Diarizer = modal.Cls.from_name(config.MODAL_APP_NAME, "SpeakerDiarizerModel")
+                                diarizer = Diarizer()
+
+                                # Run diarization
+                                speaker_timeline = diarizer.diarize.remote(preprocessed_bytes, duration)
+
+                                if speaker_timeline:
+                                    # Import alignment function
+                                    import sys
+                                    from pathlib import Path
+                                    sys.path.insert(0, str(Path(__file__).parent.parent / "modal_app"))
+                                    from app import align_speakers_to_segments
+
+                                    # Align speakers with segments
+                                    segments_with_speakers = align_speakers_to_segments(
+                                        segments_data,
+                                        speaker_timeline
+                                    )
+
+                                    # Yield updated segments with speaker labels
+                                    yield {
+                                        "event": "speakers_ready",
+                                        "data": json.dumps({"segments": segments_with_speakers})
+                                    }
+
+                                    print(f"Speaker diarization complete: {len(speaker_timeline)} speaker segments")
+                                else:
+                                    print("Diarization returned no speaker segments")
+                            except Exception as e:
+                                print(f"Diarization failed (non-fatal): {e}")
+                                import traceback
+                                traceback.print_exc()
+                                # Continue without speaker labels
+
+                        # Yield completion event
                         yield {
                             "event": "complete",
                             "data": json.dumps({
-                                "text": segment_data.get("text"),
+                                "text": full_text,
                                 "audio_session_id": session_id,
                             })
                         }
@@ -299,6 +353,8 @@ async def transcribe_audio_stream(
                         }
 
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 yield {
                     "event": "error",
                     "data": json.dumps({

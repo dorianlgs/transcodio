@@ -245,6 +245,12 @@ function handleStreamEvent(eventType, data) {
             progressFill.style.width = `${progress}%`;
             break;
 
+        case 'speakers_ready':
+            // Update segments with speaker labels
+            updateSegmentsWithSpeakers(data.segments);
+            showToast('Speaker identification completed', 'success');
+            break;
+
         case 'complete':
             // Set final text
             currentTranscription = data.text;
@@ -281,15 +287,26 @@ function addSegment(segmentData) {
         id: segmentData.id,
         start: segmentData.start,
         end: segmentData.end,
-        text: segmentData.text
+        text: segmentData.text,
+        speaker: segmentData.speaker || null
     });
 
     const segmentEl = document.createElement('div');
     segmentEl.className = 'segment';
+    segmentEl.setAttribute('data-segment-id', segmentData.id);  // For later updates
 
     const timeEl = document.createElement('div');
     timeEl.className = 'segment-time';
     timeEl.textContent = `${formatTime(segmentData.start)} - ${formatTime(segmentData.end)}`;
+
+    // Add speaker badge if present
+    if (segmentData.speaker) {
+        const speakerBadge = document.createElement('span');
+        speakerBadge.className = 'speaker-badge';
+        speakerBadge.textContent = segmentData.speaker;
+        speakerBadge.setAttribute('data-speaker', segmentData.speaker);
+        timeEl.appendChild(speakerBadge);
+    }
 
     const textEl = document.createElement('div');
     textEl.className = 'segment-text';
@@ -301,6 +318,27 @@ function addSegment(segmentData) {
 
     // Scroll to bottom
     segmentEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Update Segments with Speaker Labels
+function updateSegmentsWithSpeakers(annotatedSegments) {
+    annotatedSegments.forEach(seg => {
+        const segmentEl = segments.querySelector(`[data-segment-id="${seg.id}"]`);
+        if (segmentEl && seg.speaker) {
+            const timeEl = segmentEl.querySelector('.segment-time');
+
+            // Create speaker badge
+            const speakerBadge = document.createElement('span');
+            speakerBadge.className = 'speaker-badge';
+            speakerBadge.textContent = seg.speaker;
+            speakerBadge.setAttribute('data-speaker', seg.speaker);
+            timeEl.appendChild(speakerBadge);
+
+            // Update currentSegments array
+            const idx = currentSegments.findIndex(s => s.id === seg.id);
+            if (idx >= 0) currentSegments[idx].speaker = seg.speaker;
+        }
+    });
 }
 
 // Utility Functions
@@ -388,7 +426,8 @@ function formatTimeVTT(seconds) {
 // Generate SRT subtitle content
 function generateSRT() {
     return currentSegments.map((segment, index) => {
-        return `${index + 1}\n${formatTimeSRT(segment.start)} --> ${formatTimeSRT(segment.end)}\n${segment.text.trim()}\n`;
+        const speaker = segment.speaker ? `[${segment.speaker}] ` : '';
+        return `${index + 1}\n${formatTimeSRT(segment.start)} --> ${formatTimeSRT(segment.end)}\n${speaker}${segment.text.trim()}\n`;
     }).join('\n');
 }
 
@@ -396,7 +435,8 @@ function generateSRT() {
 function generateVTT() {
     const header = 'WEBVTT\n\n';
     const cues = currentSegments.map((segment, index) => {
-        return `${index + 1}\n${formatTimeVTT(segment.start)} --> ${formatTimeVTT(segment.end)}\n${segment.text.trim()}\n`;
+        const speaker = segment.speaker ? `[${segment.speaker}] ` : '';
+        return `${index + 1}\n${formatTimeVTT(segment.start)} --> ${formatTimeVTT(segment.end)}\n${speaker}${segment.text.trim()}\n`;
     }).join('\n');
     return header + cues;
 }
