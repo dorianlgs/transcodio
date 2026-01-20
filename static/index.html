@@ -116,12 +116,23 @@
                     <audio id="audioPlayer" controls></audio>
                 </div>
 
-                <div class="transcription-content">
-                    <div class="segments" id="segments"></div>
-                </div>
+                <!-- Tabs -->
+                <div class="tabs-container">
+                    <div class="tabs-header">
+                        <button class="tab-btn active" data-tab="transcription">Transcripción</button>
+                        <button class="tab-btn" data-tab="minutes" id="minutesTabBtn">Minuta</button>
+                    </div>
 
-                <!-- Meeting Minutes Section -->
-                <div class="minutes-section hidden" id="minutesSection">
+                    <!-- Transcription Tab -->
+                    <div class="tab-content active" id="transcriptionTab">
+                        <div class="transcription-content">
+                            <div class="segments" id="segments"></div>
+                        </div>
+                    </div>
+
+                    <!-- Minutes Tab -->
+                    <div class="tab-content" id="minutesTab">
+                        <div class="minutes-section" id="minutesSection">
                     <div class="minutes-header">
                         <h3>Minuta de Reunión</h3>
                         <button class="btn btn-secondary" id="downloadMinutesBtn">
@@ -157,6 +168,8 @@
                             <h4>Participantes Mencionados</h4>
                             <div id="minutesParticipants" class="participants-tags"></div>
                         </div>
+                    </div>
+                </div>
                     </div>
                 </div>
             </section>

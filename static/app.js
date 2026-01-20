@@ -29,6 +29,12 @@ const minutesActions = document.getElementById('minutesActions');
 const minutesParticipants = document.getElementById('minutesParticipants');
 const downloadMinutesBtn = document.getElementById('downloadMinutesBtn');
 
+// Tab elements
+const tabBtns = document.querySelectorAll('.tab-btn');
+const transcriptionTab = document.getElementById('transcriptionTab');
+const minutesTab = document.getElementById('minutesTab');
+const minutesTabBtn = document.getElementById('minutesTabBtn');
+
 // State
 let currentTranscription = '';
 let currentFile = null;
@@ -67,6 +73,26 @@ function setupEventListeners() {
     downloadVttBtn.addEventListener('click', downloadVTT);
     downloadMinutesBtn.addEventListener('click', downloadMinutes);
     newTranscriptionBtn.addEventListener('click', resetApp);
+
+    // Tab switching
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (btn.classList.contains('disabled')) return;
+            switchTab(btn.dataset.tab);
+        });
+    });
+}
+
+// Tab switching function
+function switchTab(tabName) {
+    // Update button states
+    tabBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+
+    // Update tab content visibility
+    transcriptionTab.classList.toggle('active', tabName === 'transcription');
+    minutesTab.classList.toggle('active', tabName === 'minutes');
 }
 
 // File Handling
@@ -163,7 +189,6 @@ async function transcribeWithStreaming(formData, enableDiarization = false, enab
     currentMinutes = null;
 
     // Reset minutes section
-    minutesSection.classList.add('hidden');
     minutesLoading.classList.add('hidden');
     minutesContent.classList.remove('hidden');
     minutesSummary.textContent = '';
@@ -172,12 +197,17 @@ async function transcribeWithStreaming(formData, enableDiarization = false, enab
     minutesActions.innerHTML = '';
     minutesParticipants.innerHTML = '';
 
-    // Show minutes section with loading if enabled
+    // Configure tabs based on whether minutes are enabled
     if (enableMinutes) {
-        minutesSection.classList.remove('hidden');
+        minutesTabBtn.classList.remove('disabled');
         minutesLoading.classList.remove('hidden');
         minutesContent.classList.add('hidden');
+    } else {
+        minutesTabBtn.classList.add('disabled');
     }
+
+    // Always start on transcription tab
+    switchTab('transcription');
 
     try {
         const response = await fetch('/api/transcribe/stream', {
@@ -515,7 +545,7 @@ function downloadVTT() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('VTT downloaded!', 'success');
+    showToast('VTT descargado!', 'success');
 }
 
 // Display Meeting Minutes

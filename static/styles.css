@@ -260,7 +260,7 @@ body {
 /* Transcription Content */
 .transcription-content {
     background: var(--bg-primary);
-    border-radius: 1rem;
+    border-radius: 0 0 1rem 1rem;
     padding: 2rem;
     box-shadow: var(--shadow-md);
 }
@@ -571,14 +571,61 @@ body {
     color: var(--text-primary);
 }
 
+/* Tabs */
+.tabs-container {
+    margin-top: 1.5rem;
+}
+
+.tabs-header {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 0;
+}
+
+.tab-btn {
+    padding: 0.875rem 1.5rem;
+    border: none;
+    background: transparent;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+}
+
+.tab-btn:hover {
+    color: var(--primary);
+}
+
+.tab-btn.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+
+.tab-btn.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+    animation: fadeIn 0.3s ease;
+}
+
 /* Meeting Minutes Section */
 .minutes-section {
-    margin-top: 2rem;
     background: var(--bg-primary);
-    border-radius: 1rem;
+    border-radius: 0 0 1rem 1rem;
     padding: 2rem;
     box-shadow: var(--shadow-md);
-    border-left: 4px solid var(--secondary);
 }
 
 .minutes-header {
