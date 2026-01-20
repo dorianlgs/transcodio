@@ -596,11 +596,12 @@ function displayMeetingMinutes(minutes) {
             const li = document.createElement('li');
             li.className = 'action-item';
             li.innerHTML = `
-                <span class="action-task">${item.task || 'Sin tarea especificada'}</span>
-                <span class="action-meta">
-                    <span class="action-assignee">${item.assignee || 'Sin asignar'}</span>
-                    <span class="action-deadline">${item.deadline || 'Sin fecha límite'}</span>
-                </span>
+                <div class="action-task">${item.task || 'Sin tarea especificada'}</div>
+                <div class="action-meta">
+                    <span class="action-label">Responsable:</span> <span class="action-assignee">${item.assignee || 'Sin asignar'}</span>
+                    <span class="action-separator">|</span>
+                    <span class="action-label">Fecha:</span> <span class="action-deadline">${item.deadline || 'Por definir'}</span>
+                </div>
             `;
             minutesActions.appendChild(li);
         });
@@ -669,8 +670,8 @@ function downloadMinutes() {
     if (currentMinutes.action_items && currentMinutes.action_items.length > 0) {
         currentMinutes.action_items.forEach((item, i) => {
             content += `${i + 1}. ${item.task || 'Sin tarea especificada'}\n`;
-            content += `   Responsable: ${item.assignee || 'Sin asignar'}\n`;
-            content += `   Fecha límite: ${item.deadline || 'Sin fecha límite'}\n`;
+            content += `   - Responsable: ${item.assignee || 'Sin asignar'}\n`;
+            content += `   - Fecha: ${item.deadline || 'Por definir'}\n\n`;
         });
     } else {
         content += 'No se identificaron acciones pendientes.\n';
