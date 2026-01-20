@@ -117,9 +117,9 @@ async function processFile(file) {
 
 function validateFile(file) {
     // Check file type
-    const validTypes = ['audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/wave', 'audio/mp4', 'audio/x-m4a', 'audio/flac', 'audio/ogg', 'audio/webm'];
-    if (!validTypes.includes(file.type) && !file.name.match(/\.(mp3|wav|m4a|flac|ogg|webm)$/i)) {
-        showToast('Please upload a valid audio file (MP3, WAV, M4A, FLAC, OGG)', 'error');
+    const validTypes = ['audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/wave', 'audio/mp4', 'audio/x-m4a', 'audio/flac', 'audio/ogg', 'audio/webm', 'video/mp4'];
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(mp3|wav|m4a|flac|ogg|webm|mp4)$/i)) {
+        showToast('Please upload a valid audio file (MP3, WAV, M4A, FLAC, OGG, MP4)', 'error');
         return false;
     }
 

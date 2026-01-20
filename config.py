@@ -11,7 +11,7 @@ TEMP_DIR = BASE_DIR / "temp"
 # Audio file limits
 MAX_FILE_SIZE_MB = 100
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-MAX_DURATION_SECONDS = 2000  # ~33 minutes
+MAX_DURATION_SECONDS = 3600  # 60 minutes
 
 # Supported audio formats
 SUPPORTED_FORMATS = ["mp3", "wav", "m4a", "flac", "ogg", "webm", "mp4"]
