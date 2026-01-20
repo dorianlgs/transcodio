@@ -712,7 +712,6 @@ function resetApp() {
     audioPlayer.load();
 
     // Reset minutes section
-    minutesSection.classList.add('hidden');
     minutesLoading.classList.add('hidden');
     minutesContent.classList.remove('hidden');
     minutesSummary.textContent = '';
@@ -720,6 +719,10 @@ function resetApp() {
     minutesDecisions.innerHTML = '';
     minutesActions.innerHTML = '';
     minutesParticipants.innerHTML = '';
+
+    // Reset tabs
+    minutesTabBtn.classList.add('disabled');
+    switchTab('transcription');
 
     // Reset checkboxes
     enableDiarizationCheckbox.checked = false;
