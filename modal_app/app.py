@@ -681,28 +681,28 @@ class MeetingMinutesGenerator:
             speaker_context = ""
             if speakers:
                 unique_speakers = set(seg.get("speaker", "Speaker 1") for seg in speakers)
-                speaker_context = f"\n\nParticipants detected: {', '.join(sorted(unique_speakers))}"
+                speaker_context = f"\n\nParticipantes detectados: {', '.join(sorted(unique_speakers))}"
 
-            # Build the prompt
-            system_prompt = """You are an expert meeting minutes generator. Analyze the transcription and extract key information in a structured JSON format.
+            # Build the prompt (Spanish)
+            system_prompt = """Eres un experto generador de minutas de reunión. Analiza la transcripción y extrae la información clave en formato JSON estructurado.
 
-You must respond with ONLY valid JSON, no other text. The JSON must have this exact structure:
+Debes responder SOLO con JSON válido, sin ningún otro texto. El JSON debe tener exactamente esta estructura:
 {
-  "executive_summary": "A 2-3 sentence summary of the meeting",
-  "key_discussion_points": ["Point 1", "Point 2", ...],
-  "decisions_made": ["Decision 1", "Decision 2", ...],
-  "action_items": [{"task": "Task description", "assignee": "Person or Unknown", "deadline": "If mentioned or TBD"}],
-  "participants_mentioned": ["Name 1", "Name 2", ...]
+  "executive_summary": "Un resumen de 2-3 oraciones de la reunión",
+  "key_discussion_points": ["Punto 1", "Punto 2", ...],
+  "decisions_made": ["Decisión 1", "Decisión 2", ...],
+  "action_items": [{"task": "Descripción de la tarea", "assignee": "Persona o Desconocido", "deadline": "Si se menciona o Por definir"}],
+  "participants_mentioned": ["Nombre 1", "Nombre 2", ...]
 }
 
-If a section has no items, use an empty array []. Always include all five fields."""
+Si una sección no tiene elementos, usa un array vacío []. Siempre incluye los cinco campos. Responde en español."""
 
-            user_prompt = f"""Generate meeting minutes from this transcription:{speaker_context}
+            user_prompt = f"""Genera una minuta de reunión a partir de esta transcripción:{speaker_context}
 
-TRANSCRIPTION:
+TRANSCRIPCIÓN:
 {transcription[:config.MINUTES_MAX_INPUT_TOKENS * 4]}
 
-Remember: Respond with ONLY valid JSON, no other text."""
+Recuerda: Responde SOLO con JSON válido, sin ningún otro texto. El contenido debe estar en español."""
 
             # Format as Llama chat
             messages = [

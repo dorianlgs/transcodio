@@ -9,11 +9,9 @@ const enableMinutesCheckbox = document.getElementById('enableMinutes');
 const processingStatus = document.getElementById('processingStatus');
 const progressFill = document.getElementById('progressFill');
 const segments = document.getElementById('segments');
-const fullText = document.getElementById('fullText');
 const duration = document.getElementById('duration');
 const language = document.getElementById('language');
 const audioPlayer = document.getElementById('audioPlayer');
-const copyBtn = document.getElementById('copyBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const downloadSrtBtn = document.getElementById('downloadSrtBtn');
 const downloadVttBtn = document.getElementById('downloadVttBtn');
@@ -64,7 +62,6 @@ function setupEventListeners() {
     });
 
     // Button clicks
-    copyBtn.addEventListener('click', copyToClipboard);
     downloadBtn.addEventListener('click', downloadTranscription);
     downloadSrtBtn.addEventListener('click', downloadSRT);
     downloadVttBtn.addEventListener('click', downloadVTT);
@@ -161,7 +158,6 @@ async function transcribeWithStreaming(formData, enableDiarization = false, enab
 
     // Reset results
     segments.innerHTML = '';
-    fullText.textContent = '';
     currentTranscription = '';
     currentSegments = [];
     currentMinutes = null;
@@ -293,7 +289,6 @@ function handleStreamEvent(eventType, data) {
         case 'complete':
             // Set final text
             currentTranscription = data.text;
-            fullText.textContent = data.text;
             progressFill.style.width = '100%';
 
             // Set audio player source using the preprocessed audio from backend
@@ -436,15 +431,6 @@ function showToast(message, type = 'info') {
 }
 
 // Actions
-async function copyToClipboard() {
-    try {
-        await navigator.clipboard.writeText(currentTranscription);
-        showToast('Copied to clipboard!', 'success');
-    } catch (error) {
-        showToast('Failed to copy', 'error');
-    }
-}
-
 function downloadTranscription() {
     const blob = new Blob([currentTranscription], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -541,7 +527,7 @@ function displayMeetingMinutes(minutes) {
     minutesContent.classList.remove('hidden');
 
     // Executive Summary
-    minutesSummary.textContent = minutes.executive_summary || 'No summary available.';
+    minutesSummary.textContent = minutes.executive_summary || 'No hay resumen disponible.';
 
     // Key Discussion Points
     minutesKeyPoints.innerHTML = '';
@@ -553,7 +539,7 @@ function displayMeetingMinutes(minutes) {
         });
     } else {
         const li = document.createElement('li');
-        li.textContent = 'No key discussion points identified.';
+        li.textContent = 'No se identificaron puntos clave.';
         li.className = 'empty-item';
         minutesKeyPoints.appendChild(li);
     }
@@ -568,7 +554,7 @@ function displayMeetingMinutes(minutes) {
         });
     } else {
         const li = document.createElement('li');
-        li.textContent = 'No decisions recorded.';
+        li.textContent = 'No se registraron decisiones.';
         li.className = 'empty-item';
         minutesDecisions.appendChild(li);
     }
@@ -580,17 +566,17 @@ function displayMeetingMinutes(minutes) {
             const li = document.createElement('li');
             li.className = 'action-item';
             li.innerHTML = `
-                <span class="action-task">${item.task || 'No task specified'}</span>
+                <span class="action-task">${item.task || 'Sin tarea especificada'}</span>
                 <span class="action-meta">
-                    <span class="action-assignee">${item.assignee || 'Unassigned'}</span>
-                    <span class="action-deadline">${item.deadline || 'No deadline'}</span>
+                    <span class="action-assignee">${item.assignee || 'Sin asignar'}</span>
+                    <span class="action-deadline">${item.deadline || 'Sin fecha límite'}</span>
                 </span>
             `;
             minutesActions.appendChild(li);
         });
     } else {
         const li = document.createElement('li');
-        li.textContent = 'No action items identified.';
+        li.textContent = 'No se identificaron acciones pendientes.';
         li.className = 'empty-item';
         minutesActions.appendChild(li);
     }
@@ -606,7 +592,7 @@ function displayMeetingMinutes(minutes) {
         });
     } else {
         const span = document.createElement('span');
-        span.textContent = 'No participants mentioned by name.';
+        span.textContent = 'No se mencionaron participantes por nombre.';
         span.className = 'empty-item';
         minutesParticipants.appendChild(span);
     }
@@ -615,70 +601,70 @@ function displayMeetingMinutes(minutes) {
 // Download Meeting Minutes as TXT
 function downloadMinutes() {
     if (!currentMinutes) {
-        showToast('No meeting minutes available', 'error');
+        showToast('No hay minuta disponible', 'error');
         return;
     }
 
-    let content = 'MEETING MINUTES\n';
-    content += '=' .repeat(50) + '\n\n';
+    let content = 'MINUTA DE REUNIÓN\n';
+    content += '='.repeat(50) + '\n\n';
 
-    content += 'EXECUTIVE SUMMARY\n';
+    content += 'RESUMEN EJECUTIVO\n';
     content += '-'.repeat(30) + '\n';
-    content += (currentMinutes.executive_summary || 'No summary available.') + '\n\n';
+    content += (currentMinutes.executive_summary || 'No hay resumen disponible.') + '\n\n';
 
-    content += 'KEY DISCUSSION POINTS\n';
+    content += 'PUNTOS CLAVE DISCUTIDOS\n';
     content += '-'.repeat(30) + '\n';
     if (currentMinutes.key_discussion_points && currentMinutes.key_discussion_points.length > 0) {
         currentMinutes.key_discussion_points.forEach((point, i) => {
             content += `${i + 1}. ${point}\n`;
         });
     } else {
-        content += 'No key discussion points identified.\n';
+        content += 'No se identificaron puntos clave.\n';
     }
     content += '\n';
 
-    content += 'DECISIONS MADE\n';
+    content += 'DECISIONES TOMADAS\n';
     content += '-'.repeat(30) + '\n';
     if (currentMinutes.decisions_made && currentMinutes.decisions_made.length > 0) {
         currentMinutes.decisions_made.forEach((decision, i) => {
             content += `${i + 1}. ${decision}\n`;
         });
     } else {
-        content += 'No decisions recorded.\n';
+        content += 'No se registraron decisiones.\n';
     }
     content += '\n';
 
-    content += 'ACTION ITEMS\n';
+    content += 'ACCIONES PENDIENTES\n';
     content += '-'.repeat(30) + '\n';
     if (currentMinutes.action_items && currentMinutes.action_items.length > 0) {
         currentMinutes.action_items.forEach((item, i) => {
-            content += `${i + 1}. ${item.task || 'No task specified'}\n`;
-            content += `   Assignee: ${item.assignee || 'Unassigned'}\n`;
-            content += `   Deadline: ${item.deadline || 'No deadline'}\n`;
+            content += `${i + 1}. ${item.task || 'Sin tarea especificada'}\n`;
+            content += `   Responsable: ${item.assignee || 'Sin asignar'}\n`;
+            content += `   Fecha límite: ${item.deadline || 'Sin fecha límite'}\n`;
         });
     } else {
-        content += 'No action items identified.\n';
+        content += 'No se identificaron acciones pendientes.\n';
     }
     content += '\n';
 
-    content += 'PARTICIPANTS MENTIONED\n';
+    content += 'PARTICIPANTES MENCIONADOS\n';
     content += '-'.repeat(30) + '\n';
     if (currentMinutes.participants_mentioned && currentMinutes.participants_mentioned.length > 0) {
         content += currentMinutes.participants_mentioned.join(', ') + '\n';
     } else {
-        content += 'No participants mentioned by name.\n';
+        content += 'No se mencionaron participantes por nombre.\n';
     }
 
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `meeting-minutes-${Date.now()}.txt`;
+    a.download = `minuta-reunion-${Date.now()}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('Minutes downloaded!', 'success');
+    showToast('Minuta descargada!', 'success');
 }
 
 function resetApp() {
@@ -689,7 +675,6 @@ function resetApp() {
     currentSegments = [];
     currentMinutes = null;
     segments.innerHTML = '';
-    fullText.textContent = '';
     progressFill.style.width = '0%';
 
     // Reset audio player

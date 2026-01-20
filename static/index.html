@@ -43,12 +43,12 @@
                     <label class="checkbox-label">
                         <input type="checkbox" id="enableDiarization">
                         <span class="checkbox-custom"></span>
-                        <span class="checkbox-text">Identify speakers</span>
+                        <span class="checkbox-text">Identificar hablantes</span>
                     </label>
                     <label class="checkbox-label">
                         <input type="checkbox" id="enableMinutes">
                         <span class="checkbox-custom"></span>
-                        <span class="checkbox-text">Generate meeting minutes</span>
+                        <span class="checkbox-text">Generar minuta de reunión</span>
                     </label>
                 </div>
             </section>
@@ -118,53 +118,43 @@
 
                 <div class="transcription-content">
                     <div class="segments" id="segments"></div>
-                    <div class="full-text-container">
-                        <div class="full-text" id="fullText"></div>
-                        <button class="btn btn-secondary copy-inside" id="copyBtn">
-                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                                <rect x="5" y="5" width="10" height="10" stroke="currentColor" stroke-width="1.5" rx="1"/>
-                                <path d="M3 13 L3 3 L13 3" stroke="currentColor" stroke-width="1.5"/>
-                            </svg>
-                            Copy
-                        </button>
-                    </div>
                 </div>
 
                 <!-- Meeting Minutes Section -->
                 <div class="minutes-section hidden" id="minutesSection">
                     <div class="minutes-header">
-                        <h3>Meeting Minutes</h3>
+                        <h3>Minuta de Reunión</h3>
                         <button class="btn btn-secondary" id="downloadMinutesBtn">
                             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                                 <path d="M9 3 L9 12 M5 9 L9 13 L13 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                                 <path d="M3 15 L15 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                             </svg>
-                            Download Minutes
+                            Descargar Minuta
                         </button>
                     </div>
                     <div class="minutes-loading hidden" id="minutesLoading">
                         <div class="spinner-small"></div>
-                        <span>Generating meeting minutes...</span>
+                        <span>Generando minuta de reunión...</span>
                     </div>
                     <div class="minutes-content" id="minutesContent">
                         <div class="minutes-block">
-                            <h4>Executive Summary</h4>
+                            <h4>Resumen Ejecutivo</h4>
                             <p id="minutesSummary"></p>
                         </div>
                         <div class="minutes-block">
-                            <h4>Key Discussion Points</h4>
+                            <h4>Puntos Clave Discutidos</h4>
                             <ul id="minutesKeyPoints"></ul>
                         </div>
                         <div class="minutes-block">
-                            <h4>Decisions Made</h4>
+                            <h4>Decisiones Tomadas</h4>
                             <ul id="minutesDecisions"></ul>
                         </div>
                         <div class="minutes-block">
-                            <h4>Action Items</h4>
+                            <h4>Acciones Pendientes</h4>
                             <ul id="minutesActions" class="action-items-list"></ul>
                         </div>
                         <div class="minutes-block">
-                            <h4>Participants Mentioned</h4>
+                            <h4>Participantes Mencionados</h4>
                             <div id="minutesParticipants" class="participants-tags"></div>
                         </div>
                     </div>
