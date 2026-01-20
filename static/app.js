@@ -58,7 +58,7 @@ function setupEventListeners() {
     });
     audioPlayer.addEventListener('error', (e) => {
         console.error('Audio player error:', e, audioPlayer.error);
-        showToast('Could not load audio file for playback', 'error');
+        showToast('No se pudo cargar el archivo de audio', 'error');
     });
 
     // Button clicks
@@ -144,7 +144,7 @@ function validateFile(file) {
     // Check file size (100MB max)
     const maxSize = 100 * 1024 * 1024;
     if (file.size > maxSize) {
-        showToast('File size exceeds 100MB limit', 'error');
+        showToast('El archivo excede el límite de 100MB', 'error');
         return false;
     }
 
@@ -268,7 +268,7 @@ function handleStreamEvent(eventType, data) {
             if (data.language) {
                 language.textContent = data.language.toUpperCase();
             }
-            processingStatus.textContent = 'Transcribing audio...';
+            processingStatus.textContent = 'Transcribiendo audio...';
             progressFill.style.width = '40%';
             break;
 
@@ -283,7 +283,7 @@ function handleStreamEvent(eventType, data) {
         case 'speakers_ready':
             // Update segments with speaker labels
             updateSegmentsWithSpeakers(data.segments);
-            showToast('Speaker identification completed', 'success');
+            showToast('Identificación de hablantes completada', 'success');
             break;
 
         case 'complete':
@@ -298,26 +298,26 @@ function handleStreamEvent(eventType, data) {
                 audioPlayer.src = audioURL;
                 audioPlayer.load(); // Force the browser to load the audio metadata
             } else {
-                console.warn('No audio session ID provided, cannot load audio');
+                console.warn('No se proporcionó ID de sesión de audio, no se puede cargar el audio');
             }
 
             // Show results section now
             showSection('results');
-            showToast('Transcription completed!', 'success');
+            showToast('Transcripción completada!', 'success');
             break;
 
         case 'minutes_ready':
             // Display meeting minutes
             displayMeetingMinutes(data.minutes);
-            showToast('Meeting minutes generated!', 'success');
+            showToast('Minuta generada!', 'success');
             break;
 
         case 'minutes_error':
             // Handle minutes generation error
             minutesLoading.classList.add('hidden');
             minutesContent.classList.remove('hidden');
-            minutesSummary.textContent = 'Unable to generate meeting minutes. ' + (data.error || '');
-            showToast('Failed to generate minutes', 'error');
+            minutesSummary.textContent = 'No se pudo generar la minuta. ' + (data.error || '');
+            showToast('Error al generar la minuta', 'error');
             break;
 
         case 'error':
@@ -441,7 +441,7 @@ function downloadTranscription() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('Downloaded!', 'success');
+    showToast('Descargado!', 'success');
 }
 
 // Format time for SRT (HH:MM:SS,mmm)
@@ -483,7 +483,7 @@ function generateVTT() {
 // Download SRT file
 function downloadSRT() {
     if (currentSegments.length === 0) {
-        showToast('No transcription data available', 'error');
+        showToast('No hay datos de transcripción disponibles', 'error');
         return;
     }
     const srtContent = generateSRT();
@@ -496,13 +496,13 @@ function downloadSRT() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('SRT downloaded!', 'success');
+    showToast('SRT descargado!', 'success');
 }
 
 // Download VTT file
 function downloadVTT() {
     if (currentSegments.length === 0) {
-        showToast('No transcription data available', 'error');
+        showToast('No hay datos de transcripción disponibles', 'error');
         return;
     }
     const vttContent = generateVTT();
