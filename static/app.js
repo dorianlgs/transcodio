@@ -137,7 +137,7 @@ function validateFile(file) {
     // Check file type
     const validTypes = ['audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/wave', 'audio/mp4', 'audio/x-m4a', 'audio/flac', 'audio/ogg', 'audio/webm', 'video/mp4'];
     if (!validTypes.includes(file.type) && !file.name.match(/\.(mp3|wav|m4a|flac|ogg|webm|mp4)$/i)) {
-        showToast('Please upload a valid audio file (MP3, WAV, M4A, FLAC, OGG, MP4)', 'error');
+        showToast('Por favor sube un archivo de audio válido (MP3, WAV, M4A, FLAC, OGG, MP4)', 'error');
         return false;
     }
 
@@ -153,7 +153,7 @@ function validateFile(file) {
 
 // Transcription with Streaming
 async function transcribeWithStreaming(formData, enableDiarization = false, enableMinutes = false) {
-    processingStatus.textContent = 'Starting transcription...';
+    processingStatus.textContent = 'Iniciando transcripción...';
     progressFill.style.width = '20%';
 
     // Reset results
