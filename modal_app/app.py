@@ -43,6 +43,30 @@ stt_image = (
     )
 )
 
+# LLM image for meeting minutes generation
+llm_image = (
+    modal.Image.from_registry(
+        "nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04", add_python="3.12"
+    )
+    .env({
+        "HF_XET_HIGH_PERFORMANCE": "1",
+        "HF_HOME": "/models",
+        "DEBIAN_FRONTEND": "noninteractive",
+    })
+    .uv_pip_install(
+        "hf_transfer==0.1.9",
+        "huggingface-hub==0.36.0",
+        "torch>=2.1.0",
+        "transformers>=4.36.0",
+        "accelerate>=0.25.0",
+        "bitsandbytes>=0.41.0",  # For 4-bit quantization
+    )
+    .add_local_file(
+        str(Path(__file__).parent.parent / "config.py"),
+        "/root/config.py"
+    )
+)
+
 # Create Modal app
 app = modal.App(config.MODAL_APP_NAME)
 
@@ -585,6 +609,190 @@ class SpeakerDiarizerModel:
             print(f"Diarization error: {e}")
             print(traceback.format_exc())
             return []
+
+
+@app.cls(
+    image=llm_image,
+    gpu=config.MINUTES_GPU_TYPE,
+    scaledown_window=config.MINUTES_CONTAINER_IDLE_TIMEOUT,
+    timeout=600,  # 10 minutes max for minutes generation
+    memory=8192,  # 8GB RAM sufficient for 7B model
+    volumes={"/models": volume},
+)
+class MeetingMinutesGenerator:
+    """LLM-based meeting minutes generator using Qwen2.5-7B-Instruct."""
+
+    @modal.enter()
+    def load_model(self):
+        """Load LLM model with 4-bit quantization."""
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+        import time
+
+        start_time = time.time()
+
+        print(f"Loading LLM model: {config.MINUTES_MODEL_ID}...")
+
+        # Configure 4-bit quantization for memory efficiency
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+
+        # Load tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            config.MINUTES_MODEL_ID,
+            trust_remote_code=True,
+        )
+
+        # Ensure pad token is set
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        # Load model with quantization
+        self.model = AutoModelForCausalLM.from_pretrained(
+            config.MINUTES_MODEL_ID,
+            quantization_config=quantization_config,
+            device_map="auto",
+            trust_remote_code=True,
+        )
+
+        load_time = time.time() - start_time
+        print(f"LLM model loaded in {load_time:.2f}s")
+
+    @modal.method()
+    def generate_minutes(self, transcription: str, speakers: list = None) -> Dict[str, Any]:
+        """
+        Generate meeting minutes from transcription.
+
+        Args:
+            transcription: Full transcription text
+            speakers: Optional list of speaker-annotated segments
+
+        Returns:
+            Dict with structured meeting minutes
+        """
+        import torch
+
+        try:
+            # Build speaker context if available
+            speaker_context = ""
+            if speakers:
+                unique_speakers = set(seg.get("speaker", "Speaker 1") for seg in speakers)
+                speaker_context = f"\n\nParticipants detected: {', '.join(sorted(unique_speakers))}"
+
+            # Build the prompt
+            system_prompt = """You are an expert meeting minutes generator. Analyze the transcription and extract key information in a structured JSON format.
+
+You must respond with ONLY valid JSON, no other text. The JSON must have this exact structure:
+{
+  "executive_summary": "A 2-3 sentence summary of the meeting",
+  "key_discussion_points": ["Point 1", "Point 2", ...],
+  "decisions_made": ["Decision 1", "Decision 2", ...],
+  "action_items": [{"task": "Task description", "assignee": "Person or Unknown", "deadline": "If mentioned or TBD"}],
+  "participants_mentioned": ["Name 1", "Name 2", ...]
+}
+
+If a section has no items, use an empty array []. Always include all five fields."""
+
+            user_prompt = f"""Generate meeting minutes from this transcription:{speaker_context}
+
+TRANSCRIPTION:
+{transcription[:config.MINUTES_MAX_INPUT_TOKENS * 4]}
+
+Remember: Respond with ONLY valid JSON, no other text."""
+
+            # Format as Llama chat
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+
+            # Tokenize
+            input_ids = self.tokenizer.apply_chat_template(
+                messages,
+                return_tensors="pt",
+                add_generation_prompt=True,
+            ).to(self.model.device)
+
+            # Generate
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    input_ids,
+                    max_new_tokens=config.MINUTES_MAX_OUTPUT_TOKENS,
+                    temperature=config.MINUTES_TEMPERATURE,
+                    do_sample=True,
+                    top_p=0.9,
+                    pad_token_id=self.tokenizer.eos_token_id,
+                )
+
+            # Decode response
+            response = self.tokenizer.decode(
+                outputs[0][input_ids.shape[1]:],
+                skip_special_tokens=True,
+            ).strip()
+
+            print(f"LLM raw response: {response[:500]}...")
+
+            # Parse JSON from response
+            minutes = self._parse_json_response(response)
+
+            return {
+                "success": True,
+                "minutes": minutes,
+            }
+
+        except Exception as e:
+            import traceback
+            print(f"Minutes generation error: {e}")
+            print(traceback.format_exc())
+            return {
+                "success": False,
+                "error": str(e),
+                "minutes": self._empty_minutes(),
+            }
+
+    def _parse_json_response(self, response: str) -> Dict[str, Any]:
+        """Parse JSON from LLM response, handling common issues."""
+        import re
+
+        # Try direct JSON parse first
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            pass
+
+        # Try to extract JSON from markdown code block
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # Try to find JSON object in response
+        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(0))
+            except json.JSONDecodeError:
+                pass
+
+        # Return empty structure if parsing fails
+        print(f"Failed to parse JSON from response: {response[:200]}...")
+        return self._empty_minutes()
+
+    def _empty_minutes(self) -> Dict[str, Any]:
+        """Return empty minutes structure."""
+        return {
+            "executive_summary": "Unable to generate summary.",
+            "key_discussion_points": [],
+            "decisions_made": [],
+            "action_items": [],
+            "participants_mentioned": [],
+        }
 
 
 @app.local_entrypoint()

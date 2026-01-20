@@ -4,6 +4,8 @@ const processingSection = document.getElementById('processingSection');
 const resultsSection = document.getElementById('resultsSection');
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
+const enableDiarizationCheckbox = document.getElementById('enableDiarization');
+const enableMinutesCheckbox = document.getElementById('enableMinutes');
 const processingStatus = document.getElementById('processingStatus');
 const progressFill = document.getElementById('progressFill');
 const segments = document.getElementById('segments');
@@ -18,10 +20,22 @@ const downloadVttBtn = document.getElementById('downloadVttBtn');
 const newTranscriptionBtn = document.getElementById('newTranscriptionBtn');
 const toast = document.getElementById('toast');
 
+// Minutes elements
+const minutesSection = document.getElementById('minutesSection');
+const minutesLoading = document.getElementById('minutesLoading');
+const minutesContent = document.getElementById('minutesContent');
+const minutesSummary = document.getElementById('minutesSummary');
+const minutesKeyPoints = document.getElementById('minutesKeyPoints');
+const minutesDecisions = document.getElementById('minutesDecisions');
+const minutesActions = document.getElementById('minutesActions');
+const minutesParticipants = document.getElementById('minutesParticipants');
+const downloadMinutesBtn = document.getElementById('downloadMinutesBtn');
+
 // State
 let currentTranscription = '';
 let currentFile = null;
 let currentSegments = []; // Store segments for subtitle export
+let currentMinutes = null; // Store minutes data
 
 // Initialize
 function init() {
@@ -54,6 +68,7 @@ function setupEventListeners() {
     downloadBtn.addEventListener('click', downloadTranscription);
     downloadSrtBtn.addEventListener('click', downloadSRT);
     downloadVttBtn.addEventListener('click', downloadVTT);
+    downloadMinutesBtn.addEventListener('click', downloadMinutes);
     newTranscriptionBtn.addEventListener('click', resetApp);
 }
 
@@ -105,8 +120,14 @@ async function processFile(file) {
         const formData = new FormData();
         formData.append('file', file);
 
+        // Add options from checkboxes
+        const enableDiarization = enableDiarizationCheckbox.checked;
+        const enableMinutes = enableMinutesCheckbox.checked;
+        formData.append('enable_diarization', enableDiarization);
+        formData.append('enable_minutes', enableMinutes);
+
         // Upload and transcribe with streaming
-        await transcribeWithStreaming(formData);
+        await transcribeWithStreaming(formData, enableDiarization, enableMinutes);
 
     } catch (error) {
         console.error('Error:', error);
@@ -134,7 +155,7 @@ function validateFile(file) {
 }
 
 // Transcription with Streaming
-async function transcribeWithStreaming(formData) {
+async function transcribeWithStreaming(formData, enableDiarization = false, enableMinutes = false) {
     processingStatus.textContent = 'Starting transcription...';
     progressFill.style.width = '20%';
 
@@ -143,6 +164,24 @@ async function transcribeWithStreaming(formData) {
     fullText.textContent = '';
     currentTranscription = '';
     currentSegments = [];
+    currentMinutes = null;
+
+    // Reset minutes section
+    minutesSection.classList.add('hidden');
+    minutesLoading.classList.add('hidden');
+    minutesContent.classList.remove('hidden');
+    minutesSummary.textContent = '';
+    minutesKeyPoints.innerHTML = '';
+    minutesDecisions.innerHTML = '';
+    minutesActions.innerHTML = '';
+    minutesParticipants.innerHTML = '';
+
+    // Show minutes section with loading if enabled
+    if (enableMinutes) {
+        minutesSection.classList.remove('hidden');
+        minutesLoading.classList.remove('hidden');
+        minutesContent.classList.add('hidden');
+    }
 
     try {
         const response = await fetch('/api/transcribe/stream', {
@@ -270,6 +309,20 @@ function handleStreamEvent(eventType, data) {
             // Show results section now
             showSection('results');
             showToast('Transcription completed!', 'success');
+            break;
+
+        case 'minutes_ready':
+            // Display meeting minutes
+            displayMeetingMinutes(data.minutes);
+            showToast('Meeting minutes generated!', 'success');
+            break;
+
+        case 'minutes_error':
+            // Handle minutes generation error
+            minutesLoading.classList.add('hidden');
+            minutesContent.classList.remove('hidden');
+            minutesSummary.textContent = 'Unable to generate meeting minutes. ' + (data.error || '');
+            showToast('Failed to generate minutes', 'error');
             break;
 
         case 'error':
@@ -479,12 +532,162 @@ function downloadVTT() {
     showToast('VTT downloaded!', 'success');
 }
 
+// Display Meeting Minutes
+function displayMeetingMinutes(minutes) {
+    currentMinutes = minutes;
+
+    // Hide loading, show content
+    minutesLoading.classList.add('hidden');
+    minutesContent.classList.remove('hidden');
+
+    // Executive Summary
+    minutesSummary.textContent = minutes.executive_summary || 'No summary available.';
+
+    // Key Discussion Points
+    minutesKeyPoints.innerHTML = '';
+    if (minutes.key_discussion_points && minutes.key_discussion_points.length > 0) {
+        minutes.key_discussion_points.forEach(point => {
+            const li = document.createElement('li');
+            li.textContent = point;
+            minutesKeyPoints.appendChild(li);
+        });
+    } else {
+        const li = document.createElement('li');
+        li.textContent = 'No key discussion points identified.';
+        li.className = 'empty-item';
+        minutesKeyPoints.appendChild(li);
+    }
+
+    // Decisions Made
+    minutesDecisions.innerHTML = '';
+    if (minutes.decisions_made && minutes.decisions_made.length > 0) {
+        minutes.decisions_made.forEach(decision => {
+            const li = document.createElement('li');
+            li.textContent = decision;
+            minutesDecisions.appendChild(li);
+        });
+    } else {
+        const li = document.createElement('li');
+        li.textContent = 'No decisions recorded.';
+        li.className = 'empty-item';
+        minutesDecisions.appendChild(li);
+    }
+
+    // Action Items
+    minutesActions.innerHTML = '';
+    if (minutes.action_items && minutes.action_items.length > 0) {
+        minutes.action_items.forEach(item => {
+            const li = document.createElement('li');
+            li.className = 'action-item';
+            li.innerHTML = `
+                <span class="action-task">${item.task || 'No task specified'}</span>
+                <span class="action-meta">
+                    <span class="action-assignee">${item.assignee || 'Unassigned'}</span>
+                    <span class="action-deadline">${item.deadline || 'No deadline'}</span>
+                </span>
+            `;
+            minutesActions.appendChild(li);
+        });
+    } else {
+        const li = document.createElement('li');
+        li.textContent = 'No action items identified.';
+        li.className = 'empty-item';
+        minutesActions.appendChild(li);
+    }
+
+    // Participants Mentioned
+    minutesParticipants.innerHTML = '';
+    if (minutes.participants_mentioned && minutes.participants_mentioned.length > 0) {
+        minutes.participants_mentioned.forEach(participant => {
+            const tag = document.createElement('span');
+            tag.className = 'participant-tag';
+            tag.textContent = participant;
+            minutesParticipants.appendChild(tag);
+        });
+    } else {
+        const span = document.createElement('span');
+        span.textContent = 'No participants mentioned by name.';
+        span.className = 'empty-item';
+        minutesParticipants.appendChild(span);
+    }
+}
+
+// Download Meeting Minutes as TXT
+function downloadMinutes() {
+    if (!currentMinutes) {
+        showToast('No meeting minutes available', 'error');
+        return;
+    }
+
+    let content = 'MEETING MINUTES\n';
+    content += '=' .repeat(50) + '\n\n';
+
+    content += 'EXECUTIVE SUMMARY\n';
+    content += '-'.repeat(30) + '\n';
+    content += (currentMinutes.executive_summary || 'No summary available.') + '\n\n';
+
+    content += 'KEY DISCUSSION POINTS\n';
+    content += '-'.repeat(30) + '\n';
+    if (currentMinutes.key_discussion_points && currentMinutes.key_discussion_points.length > 0) {
+        currentMinutes.key_discussion_points.forEach((point, i) => {
+            content += `${i + 1}. ${point}\n`;
+        });
+    } else {
+        content += 'No key discussion points identified.\n';
+    }
+    content += '\n';
+
+    content += 'DECISIONS MADE\n';
+    content += '-'.repeat(30) + '\n';
+    if (currentMinutes.decisions_made && currentMinutes.decisions_made.length > 0) {
+        currentMinutes.decisions_made.forEach((decision, i) => {
+            content += `${i + 1}. ${decision}\n`;
+        });
+    } else {
+        content += 'No decisions recorded.\n';
+    }
+    content += '\n';
+
+    content += 'ACTION ITEMS\n';
+    content += '-'.repeat(30) + '\n';
+    if (currentMinutes.action_items && currentMinutes.action_items.length > 0) {
+        currentMinutes.action_items.forEach((item, i) => {
+            content += `${i + 1}. ${item.task || 'No task specified'}\n`;
+            content += `   Assignee: ${item.assignee || 'Unassigned'}\n`;
+            content += `   Deadline: ${item.deadline || 'No deadline'}\n`;
+        });
+    } else {
+        content += 'No action items identified.\n';
+    }
+    content += '\n';
+
+    content += 'PARTICIPANTS MENTIONED\n';
+    content += '-'.repeat(30) + '\n';
+    if (currentMinutes.participants_mentioned && currentMinutes.participants_mentioned.length > 0) {
+        content += currentMinutes.participants_mentioned.join(', ') + '\n';
+    } else {
+        content += 'No participants mentioned by name.\n';
+    }
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `meeting-minutes-${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Minutes downloaded!', 'success');
+}
+
 function resetApp() {
     showSection('upload');
     fileInput.value = '';
     currentFile = null;
     currentTranscription = '';
     currentSegments = [];
+    currentMinutes = null;
     segments.innerHTML = '';
     fullText.textContent = '';
     progressFill.style.width = '0%';
@@ -492,6 +695,20 @@ function resetApp() {
     // Reset audio player
     audioPlayer.src = '';
     audioPlayer.load();
+
+    // Reset minutes section
+    minutesSection.classList.add('hidden');
+    minutesLoading.classList.add('hidden');
+    minutesContent.classList.remove('hidden');
+    minutesSummary.textContent = '';
+    minutesKeyPoints.innerHTML = '';
+    minutesDecisions.innerHTML = '';
+    minutesActions.innerHTML = '';
+    minutesParticipants.innerHTML = '';
+
+    // Reset checkboxes
+    enableDiarizationCheckbox.checked = false;
+    enableMinutesCheckbox.checked = false;
 }
 
 // Initialize app

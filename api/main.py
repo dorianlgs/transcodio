@@ -7,7 +7,7 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, Response
@@ -182,12 +182,16 @@ async def transcribe_audio(
 @app.post("/api/transcribe/stream")
 async def transcribe_audio_stream(
     file: UploadFile = File(..., description="Audio file to transcribe"),
+    enable_diarization: bool = Form(default=False, description="Enable speaker diarization"),
+    enable_minutes: bool = Form(default=False, description="Generate meeting minutes"),
 ):
     """
     Transcribe an audio file with streaming results via Server-Sent Events.
 
     Args:
         file: Uploaded audio file
+        enable_diarization: Whether to identify speakers in the audio
+        enable_minutes: Whether to generate meeting minutes after transcription
 
     Returns:
         SSE stream of transcription segments
@@ -297,7 +301,7 @@ async def transcribe_audio_stream(
                         full_text = segment_data.get("text", "")
 
                         # Run speaker diarization if enabled and there are segments
-                        if config.ENABLE_SPEAKER_DIARIZATION and segments_data:
+                        if enable_diarization and config.ENABLE_SPEAKER_DIARIZATION and segments_data:
                             try:
                                 print("Running speaker diarization...")
                                 # Import diarizer from Modal
@@ -343,6 +347,49 @@ async def transcribe_audio_stream(
                                 "audio_session_id": session_id,
                             })
                         }
+
+                        # Generate meeting minutes if enabled
+                        if enable_minutes and config.ENABLE_MEETING_MINUTES and full_text:
+                            try:
+                                print("Generating meeting minutes...")
+                                # Import minutes generator from Modal
+                                MinutesGenerator = modal.Cls.from_name(
+                                    config.MODAL_APP_NAME, "MeetingMinutesGenerator"
+                                )
+                                generator = MinutesGenerator()
+
+                                # Generate minutes
+                                minutes_result = generator.generate_minutes.remote(
+                                    full_text,
+                                    segments_data if segments_data else None
+                                )
+
+                                if minutes_result.get("success"):
+                                    yield {
+                                        "event": "minutes_ready",
+                                        "data": json.dumps({
+                                            "minutes": minutes_result.get("minutes", {})
+                                        })
+                                    }
+                                    print("Meeting minutes generated successfully")
+                                else:
+                                    print(f"Minutes generation failed: {minutes_result.get('error')}")
+                                    yield {
+                                        "event": "minutes_error",
+                                        "data": json.dumps({
+                                            "error": minutes_result.get("error", "Unknown error")
+                                        })
+                                    }
+                            except Exception as e:
+                                print(f"Minutes generation failed (non-fatal): {e}")
+                                import traceback
+                                traceback.print_exc()
+                                yield {
+                                    "event": "minutes_error",
+                                    "data": json.dumps({
+                                        "error": str(e)
+                                    })
+                                }
 
                     elif event_type == "error":
                         yield {
