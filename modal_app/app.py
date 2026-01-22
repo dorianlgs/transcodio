@@ -43,24 +43,10 @@ stt_image = (
     )
 )
 
-# LLM image for meeting minutes generation
-llm_image = (
-    modal.Image.from_registry(
-        "nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04", add_python="3.12"
-    )
-    .env({
-        "HF_XET_HIGH_PERFORMANCE": "1",
-        "HF_HOME": "/models",
-        "DEBIAN_FRONTEND": "noninteractive",
-    })
-    .uv_pip_install(
-        "hf_transfer==0.1.9",
-        "huggingface-hub==0.36.0",
-        "torch>=2.1.0",
-        "transformers>=4.36.0",
-        "accelerate>=0.25.0",
-        "bitsandbytes>=0.41.0",  # For 4-bit quantization
-    )
+# Anthropic API image for meeting minutes generation (no GPU needed)
+anthropic_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install("anthropic>=0.40.0")
     .add_local_file(
         str(Path(__file__).parent.parent / "config.py"),
         "/root/config.py"
@@ -612,60 +598,29 @@ class SpeakerDiarizerModel:
 
 
 @app.cls(
-    image=llm_image,
-    gpu=config.MINUTES_GPU_TYPE,
+    image=anthropic_image,
+    secrets=[modal.Secret.from_name("anthropic-api-key")],
     scaledown_window=config.MINUTES_CONTAINER_IDLE_TIMEOUT,
-    timeout=600,  # 10 minutes max for minutes generation
-    memory=8192,  # 8GB RAM sufficient for 7B model
-    volumes={"/models": volume},
+    timeout=120,  # 2 minutes max for API call
 )
 class MeetingMinutesGenerator:
-    """LLM-based meeting minutes generator using Qwen2.5-7B-Instruct."""
+    """Meeting minutes generator using Anthropic Claude Haiku 4.5 API."""
 
     @modal.enter()
-    def load_model(self):
-        """Load LLM model with 4-bit quantization."""
-        import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-        import time
+    def setup_client(self):
+        """Initialize Anthropic client."""
+        import anthropic
+        import os
 
-        start_time = time.time()
-
-        print(f"Loading LLM model: {config.MINUTES_MODEL_ID}...")
-
-        # Configure 4-bit quantization for memory efficiency
-        quantization_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
+        self.client = anthropic.Anthropic(
+            api_key=os.environ["ANTHROPIC_API_KEY"]
         )
-
-        # Load tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            config.MINUTES_MODEL_ID,
-            trust_remote_code=True,
-        )
-
-        # Ensure pad token is set
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        # Load model with quantization
-        self.model = AutoModelForCausalLM.from_pretrained(
-            config.MINUTES_MODEL_ID,
-            quantization_config=quantization_config,
-            device_map="auto",
-            trust_remote_code=True,
-        )
-
-        load_time = time.time() - start_time
-        print(f"LLM model loaded in {load_time:.2f}s")
+        print(f"Anthropic client initialized for model: {config.ANTHROPIC_MODEL_ID}")
 
     @modal.method()
     def generate_minutes(self, transcription: str, speakers: list = None) -> Dict[str, Any]:
         """
-        Generate meeting minutes from transcription.
+        Generate meeting minutes from transcription using Claude Haiku 4.5.
 
         Args:
             transcription: Full transcription text
@@ -674,9 +629,14 @@ class MeetingMinutesGenerator:
         Returns:
             Dict with structured meeting minutes
         """
-        import torch
+        from datetime import datetime
 
         try:
+            # Get current date for relative date calculations
+            today = datetime.now()
+            date_str = today.strftime("%d de %B de %Y")  # e.g., "21 de enero de 2025"
+            weekday = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"][today.weekday()]
+
             # Build speaker context if available
             speaker_context = ""
             if speakers:
@@ -684,16 +644,23 @@ class MeetingMinutesGenerator:
                 speaker_context = f"\n\nParticipantes detectados: {', '.join(sorted(unique_speakers))}"
 
             # Build the prompt (Spanish)
-            system_prompt = """Eres un experto generador de minutas de reunión. Analiza la transcripción y extrae la información clave en formato JSON estructurado.
+            system_prompt = f"""Eres un experto generador de minutas de reunión. Analiza la transcripción y extrae la información clave en formato JSON estructurado.
+
+FECHA DE HOY: {weekday}, {date_str}
+
+Cuando en la transcripción se mencionen fechas relativas como "mañana", "pasado mañana", "la próxima semana", "el lunes", etc., DEBES calcular y mostrar la fecha exacta en formato "DD/MM/YYYY". Por ejemplo:
+- Si hoy es martes 21/01/2025 y dicen "mañana" → "22/01/2025"
+- Si dicen "la próxima semana" → mostrar la fecha del lunes de la próxima semana
+- Si dicen "el viernes" → calcular el próximo viernes
 
 Debes responder SOLO con JSON válido, sin ningún otro texto. El JSON debe tener exactamente esta estructura:
-{
+{{
   "executive_summary": "Un resumen de 2-3 oraciones de la reunión",
   "key_discussion_points": ["Punto 1", "Punto 2", ...],
   "decisions_made": ["Decisión 1", "Decisión 2", ...],
-  "action_items": [{"task": "Descripción de la tarea", "assignee": "Persona o Desconocido", "deadline": "Si se menciona o Por definir"}],
+  "action_items": [{{"task": "Descripción de la tarea", "assignee": "Nombre de persona o Desconocido", "deadline": "DD/MM/YYYY o Por definir"}}],
   "participants_mentioned": ["Nombre 1", "Nombre 2", ...]
-}
+}}
 
 Si una sección no tiene elementos, usa un array vacío []. Siempre incluye los cinco campos. Responde en español."""
 
@@ -702,39 +669,22 @@ Si una sección no tiene elementos, usa un array vacío []. Siempre incluye los 
 TRANSCRIPCIÓN:
 {transcription[:config.MINUTES_MAX_INPUT_TOKENS * 4]}
 
-Recuerda: Responde SOLO con JSON válido, sin ningún otro texto. El contenido debe estar en español."""
+Recuerda: Responde SOLO con JSON válido, sin ningún otro texto. El contenido debe estar en español. Las fechas deben ser calculadas basándose en la fecha de hoy."""
 
-            # Format as Llama chat
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
+            # Call Claude Haiku 4.5 API
+            message = self.client.messages.create(
+                model=config.ANTHROPIC_MODEL_ID,
+                max_tokens=config.MINUTES_MAX_OUTPUT_TOKENS,
+                temperature=config.MINUTES_TEMPERATURE,
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": user_prompt}
+                ]
+            )
 
-            # Tokenize
-            input_ids = self.tokenizer.apply_chat_template(
-                messages,
-                return_tensors="pt",
-                add_generation_prompt=True,
-            ).to(self.model.device)
-
-            # Generate
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    input_ids,
-                    max_new_tokens=config.MINUTES_MAX_OUTPUT_TOKENS,
-                    temperature=config.MINUTES_TEMPERATURE,
-                    do_sample=True,
-                    top_p=0.9,
-                    pad_token_id=self.tokenizer.eos_token_id,
-                )
-
-            # Decode response
-            response = self.tokenizer.decode(
-                outputs[0][input_ids.shape[1]:],
-                skip_special_tokens=True,
-            ).strip()
-
-            print(f"LLM raw response: {response[:500]}...")
+            # Extract response text
+            response = message.content[0].text.strip()
+            print(f"Claude response: {response[:500]}...")
 
             # Parse JSON from response
             minutes = self._parse_json_response(response)

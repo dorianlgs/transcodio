@@ -106,11 +106,10 @@ DIARIZATION_MAX_SPEAKERS = 5  # Maximum speakers to detect (uses silhouette scor
 DIARIZATION_WINDOW_LENGTHS = [1.5, 1.0, 0.5]  # Window lengths in seconds (only [0] is used)
 DIARIZATION_SHIFT_LENGTH = 0.75  # Shift length in seconds (window overlap)
 
-# Meeting Minutes Generation Configuration
+# Meeting Minutes Generation Configuration (Anthropic Claude API)
 ENABLE_MEETING_MINUTES = True  # Feature flag
-MINUTES_MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"  # Ungated model, good instruction-following
-MINUTES_GPU_TYPE = "L4"  # L4 24GB is sufficient for 7B model with 4-bit quantization
-MINUTES_MAX_INPUT_TOKENS = 6000  # Maximum input tokens (transcription)
+ANTHROPIC_MODEL_ID = "claude-haiku-4-5-20251001"  # Claude Haiku 4.5 - fast and cost-effective
+MINUTES_MAX_INPUT_TOKENS = 8000  # Maximum input tokens (transcription) - Haiku supports 200k context
 MINUTES_MAX_OUTPUT_TOKENS = 2048  # Maximum output tokens (minutes)
 MINUTES_TEMPERATURE = 0.3  # Low temperature for consistent, structured output
 MINUTES_CONTAINER_IDLE_TIMEOUT = 60  # 1 minute (shorter than STT since less frequent)
