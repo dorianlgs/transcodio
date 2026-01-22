@@ -77,6 +77,11 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
     - `DIARIZATION_MIN_SPEAKERS`, `DIARIZATION_MAX_SPEAKERS` (default: 1-5)
     - `DIARIZATION_WINDOW_LENGTHS` (multi-scale windows: [1.5, 1.0, 0.5] seconds)
     - `DIARIZATION_SHIFT_LENGTH` (default: 0.75 seconds)
+  - **Meeting minutes settings** (Anthropic Claude API):
+    - `ENABLE_MEETING_MINUTES` (feature flag, default: True)
+    - `ANTHROPIC_MODEL_ID = "claude-haiku-4-5-20251001"` (Claude Haiku 4.5)
+    - `MINUTES_MAX_INPUT_TOKENS`, `MINUTES_MAX_OUTPUT_TOKENS`
+    - `MINUTES_TEMPERATURE` (default: 0.3 for structured output)
 
 ## Common Commands
 
@@ -290,6 +295,58 @@ The frontend includes an **integrated audio player** that allows users to listen
 
 **Note**: For production with high traffic, consider replacing the in-memory cache with Redis or a similar persistent store.
 
+### Meeting Minutes Generation
+
+The service includes **AI-powered meeting minutes generation** using Anthropic's Claude Haiku 4.5 API. This feature analyzes transcriptions and extracts structured information including summaries, key points, decisions, and action items.
+
+**How it works:**
+1. **Transcription completes**: After audio is fully transcribed
+2. **API call**: Claude Haiku 4.5 analyzes the full transcription text
+3. **Date awareness**: Current date is injected into the prompt for relative date calculation
+4. **Structured output**: Returns JSON with executive summary, key points, decisions, action items, and participants
+5. **Frontend display**: Minutes tab shows organized meeting information
+6. **Download**: Export minutes as formatted TXT file
+
+**Configuration** (in `config.py`):
+```python
+ENABLE_MEETING_MINUTES = True  # Toggle feature on/off
+ANTHROPIC_MODEL_ID = "claude-haiku-4-5-20251001"  # Claude Haiku 4.5
+MINUTES_MAX_INPUT_TOKENS = 8000  # Max transcription length
+MINUTES_MAX_OUTPUT_TOKENS = 2048  # Max response length
+MINUTES_TEMPERATURE = 0.3  # Low for consistent structured output
+```
+
+**Modal Secret Setup** (required):
+```bash
+# Create the Anthropic API key secret in Modal
+py -m modal secret create anthropic-api-key ANTHROPIC_API_KEY=sk-ant-...
+```
+
+**Output structure:**
+```json
+{
+  "executive_summary": "2-3 sentence summary",
+  "key_discussion_points": ["Point 1", "Point 2"],
+  "decisions_made": ["Decision 1", "Decision 2"],
+  "action_items": [
+    {"task": "Task description", "assignee": "Person", "deadline": "DD/MM/YYYY"}
+  ],
+  "participants_mentioned": ["Name 1", "Name 2"]
+}
+```
+
+**Key features:**
+- **Relative date calculation**: "mañana", "la próxima semana" are converted to actual dates
+- **Spanish language**: Prompts and output are in Spanish
+- **No GPU required**: Uses Anthropic API (runs on CPU-only Modal container)
+- **Fast**: Typical response time 2-5 seconds
+- **Graceful degradation**: If minutes generation fails, transcription still succeeds
+
+**Troubleshooting:**
+- **"anthropic-api-key not found"**: Create the Modal secret with your API key
+- **"model not found"**: Verify `ANTHROPIC_MODEL_ID` is correct
+- **Empty minutes**: Check Modal logs for API errors
+
 ### Cost Optimization
 
 GPU costs are ~$0.006 per minute of audio. Optimization strategies:
@@ -339,6 +396,7 @@ Redeploy Modal: `py -m modal deploy modal_app/app.py`
 - `sse-starlette`: Server-Sent Events support
 - **`scikit-learn>=1.3.0`**: Spectral clustering for speaker diarization
 - **`soundfile>=0.12.1`**: Audio file I/O for diarization
+- **`anthropic>=0.40.0`**: Anthropic Claude API for meeting minutes generation
 
 **Modal Container Image**:
 - Base: `nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04`
@@ -377,6 +435,13 @@ ENABLE_GPU_MEMORY_SNAPSHOT = True  # Experimental, 85-90% faster cold starts
 - Verify the `/api/audio/{session_id}` endpoint is accessible
 - Audio cache expires after 1 hour - if playback fails, the session may have expired
 - Check browser console for CORS or network errors
+
+**Meeting minutes not generating**:
+- Ensure Modal secret exists: `py -m modal secret list` should show `anthropic-api-key`
+- Create the secret if missing: `py -m modal secret create anthropic-api-key ANTHROPIC_API_KEY=sk-ant-...`
+- Check `ENABLE_MEETING_MINUTES = True` in `config.py`
+- Verify API key is valid and has credits
+- Check Modal logs for API errors: `py -m modal app logs transcodio-app`
 
 ## Model Comparison
 
