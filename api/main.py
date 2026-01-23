@@ -21,6 +21,7 @@ from api.models import (
     TranscriptionResponse,
     ErrorResponse,
     HealthResponse,
+    VoiceCloneResponse,
 )
 from api.streaming import transcription_event_stream
 from utils.audio import validate_audio_file, AudioValidationError
@@ -411,6 +412,162 @@ async def transcribe_audio_stream(
 
         # Return SSE response
         return EventSourceResponse(event_generator())
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error: {str(e)}",
+        )
+
+
+@app.post("/api/voice-clone", response_model=VoiceCloneResponse)
+async def voice_clone(
+    ref_audio: UploadFile = File(..., description="Reference audio file (3-30 seconds)"),
+    ref_text: str = Form(..., description="Transcription of the reference audio"),
+    target_text: str = Form(..., description="Text to synthesize with cloned voice"),
+    language: str = Form(default="Spanish", description="Target language"),
+):
+    """
+    Clone a voice and synthesize new text.
+
+    Args:
+        ref_audio: Reference audio file (3-30 seconds)
+        ref_text: Transcription of the reference audio
+        target_text: Text to synthesize with cloned voice
+        language: Target language (Spanish, English, etc.)
+
+    Returns:
+        VoiceCloneResponse with audio_session_id for playback/download
+
+    Raises:
+        HTTPException: If validation fails or generation errors
+    """
+    # Check if voice cloning is enabled
+    if not config.ENABLE_VOICE_CLONING:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice cloning is disabled"
+        )
+
+    try:
+        # Validate language
+        if language not in config.VOICE_CLONE_LANGUAGES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported language. Supported: {', '.join(config.VOICE_CLONE_LANGUAGES)}"
+            )
+
+        # Validate target text length
+        if len(target_text) > config.VOICE_CLONE_MAX_TARGET_TEXT:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Target text too long. Maximum {config.VOICE_CLONE_MAX_TARGET_TEXT} characters."
+            )
+
+        if len(target_text.strip()) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Target text cannot be empty."
+            )
+
+        # Validate reference text
+        if len(ref_text.strip()) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Reference text cannot be empty."
+            )
+
+        # Read reference audio
+        ref_audio_bytes = await ref_audio.read()
+        file_size = len(ref_audio_bytes)
+
+        # Validate file size (max 10MB for reference audio)
+        if file_size > 10 * 1024 * 1024:
+            raise HTTPException(
+                status_code=400,
+                detail="Reference audio too large. Maximum 10MB."
+            )
+
+        # Preprocess reference audio (convert to 24kHz mono WAV)
+        try:
+            ref_duration, preprocessed_ref = validate_audio_file(
+                filename=ref_audio.filename,
+                file_size=file_size,
+                audio_bytes=ref_audio_bytes,
+                content_type=ref_audio.content_type,
+                target_sample_rate=config.VOICE_CLONE_SAMPLE_RATE,
+            )
+        except AudioValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Validate reference audio duration
+        if ref_duration < config.VOICE_CLONE_MIN_REF_DURATION:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Reference audio too short. Minimum {config.VOICE_CLONE_MIN_REF_DURATION} seconds."
+            )
+
+        if ref_duration > config.VOICE_CLONE_MAX_REF_DURATION:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Reference audio too long. Maximum {config.VOICE_CLONE_MAX_REF_DURATION} seconds."
+            )
+
+        # Import Modal and lookup TTS model
+        try:
+            import modal
+
+            TTSModel = modal.Cls.from_name(config.MODAL_APP_NAME, "Qwen3TTSVoiceCloner")
+            model = TTSModel()
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"TTS service unavailable: {str(e)}. Make sure the Modal app is deployed.",
+            )
+
+        # Generate voice clone
+        try:
+            result = model.generate_voice_clone.remote(
+                preprocessed_ref,
+                ref_text,
+                target_text,
+                language
+            )
+
+            if not result.get("success"):
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Voice cloning failed: {result.get('error', 'Unknown error')}"
+                )
+
+            # Generate session ID and cache the generated audio
+            session_id = str(uuid.uuid4())
+            expiry_time = datetime.now() + timedelta(hours=1)
+            audio_cache[session_id] = (
+                result["audio_bytes"],
+                "audio/wav",
+                "voice_clone.wav",
+                expiry_time
+            )
+
+            # Clean up expired entries
+            cleanup_expired_audio()
+
+            return VoiceCloneResponse(
+                success=True,
+                audio_session_id=session_id,
+                duration=result.get("duration"),
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Voice cloning failed: {str(e)}",
+            )
 
     except HTTPException:
         raise

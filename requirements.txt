@@ -21,6 +21,9 @@ aiofiles>=25.1.0
 # LLM API (for meeting minutes)
 anthropic>=0.40.0
 
+# TTS (for voice cloning - installed in Modal container)
+# qwen-tts  # Not needed locally, only in Modal container
+
 # Utilities
 pydantic>=2.12.0
 python-dotenv>=1.2.0

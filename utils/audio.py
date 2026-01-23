@@ -74,28 +74,81 @@ def get_audio_duration(audio_bytes: bytes) -> float:
     Raises:
         AudioValidationError: If unable to read audio file
     """
+    import ffmpeg
+    import tempfile
+    import os
+
+    # Write to temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".audio") as tmp_file:
+        tmp_file.write(audio_bytes)
+        tmp_path = tmp_file.name
+
+    wav_path = None
     try:
-        import ffmpeg
-        import tempfile
-        import os
-
-        # Write to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".audio") as tmp_file:
-            tmp_file.write(audio_bytes)
-            tmp_path = tmp_file.name
-
+        # First, try to get duration using ffprobe directly
+        probe_succeeded = False
         try:
-            # Get duration using ffprobe
             probe = ffmpeg.probe(tmp_path)
-            duration = float(probe['format']['duration'])
-            return duration
-        finally:
-            # Cleanup
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            probe_succeeded = True
 
+            # Try to get duration from format first
+            if 'format' in probe and 'duration' in probe['format']:
+                return float(probe['format']['duration'])
+
+            # Fallback: try to get duration from streams
+            for stream in probe.get('streams', []):
+                if 'duration' in stream:
+                    return float(stream['duration'])
+
+            # Last resort: calculate from frames/sample rate for audio streams
+            for stream in probe.get('streams', []):
+                if stream.get('codec_type') == 'audio':
+                    # Try to calculate from nb_frames and time_base or sample rate
+                    if 'nb_frames' in stream and 'sample_rate' in stream:
+                        nb_frames = int(stream['nb_frames'])
+                        sample_rate = int(stream['sample_rate'])
+                        if sample_rate > 0:
+                            return nb_frames / sample_rate
+        except Exception as probe_error:
+            # ffprobe failed - this is common with browser-recorded WebM
+            # We'll try the WAV conversion fallback below
+            print(f"ffprobe failed (will try WAV conversion): {probe_error}")
+
+        # Fallback: convert to WAV and get duration from that
+        # This handles webm files from browser recording that lack duration metadata
+        # or have malformed headers that cause ffprobe to fail
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as wav_file:
+            wav_path = wav_file.name
+
+        (
+            ffmpeg
+            .input(tmp_path)
+            .output(wav_path, acodec='pcm_s16le', ac=1, ar=16000)
+            .overwrite_output()
+            .run(capture_stdout=True, capture_stderr=True, quiet=True)
+        )
+
+        wav_probe = ffmpeg.probe(wav_path)
+        if 'format' in wav_probe and 'duration' in wav_probe['format']:
+            return float(wav_probe['format']['duration'])
+
+        raise AudioValidationError("Could not determine audio duration from file metadata")
+
+    except AudioValidationError:
+        raise
     except Exception as e:
-        raise AudioValidationError(f"Failed to read audio file: {str(e)}")
+        # Extract stderr from ffmpeg.Error if available
+        error_msg = str(e)
+        if hasattr(e, 'stderr') and e.stderr:
+            stderr = e.stderr.decode('utf-8', errors='ignore') if isinstance(e.stderr, bytes) else str(e.stderr)
+            error_msg = f"{error_msg}\nFFmpeg stderr: {stderr}"
+        raise AudioValidationError(f"Failed to read audio file: {error_msg}")
+    finally:
+        # Cleanup
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        if wav_path and os.path.exists(wav_path):
+            os.remove(wav_path)
 
 
 def validate_audio_duration(audio_bytes: bytes) -> float:
@@ -122,15 +175,16 @@ def validate_audio_duration(audio_bytes: bytes) -> float:
     return duration
 
 
-def preprocess_audio(audio_bytes: bytes) -> bytes:
+def preprocess_audio(audio_bytes: bytes, sample_rate: Optional[int] = None) -> bytes:
     """
-    Preprocess audio file for optimal transcription.
+    Preprocess audio file for optimal transcription/TTS.
     - Convert to WAV format
-    - Resample to 16kHz (Parakeet TDT's native rate)
+    - Resample to target sample rate
     - Convert to mono
 
     Args:
         audio_bytes: Raw audio file bytes
+        sample_rate: Target sample rate (default: config.SAMPLE_RATE)
 
     Returns:
         Preprocessed audio bytes in WAV format
@@ -143,6 +197,8 @@ def preprocess_audio(audio_bytes: bytes) -> bytes:
         import tempfile
         import os
 
+        target_rate = sample_rate if sample_rate else config.SAMPLE_RATE
+
         # Write input to temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".audio") as tmp_file:
             tmp_file.write(audio_bytes)
@@ -153,11 +209,11 @@ def preprocess_audio(audio_bytes: bytes) -> bytes:
             output_path = tmp_file.name
 
         try:
-            # Use ffmpeg to convert: mono, 16kHz, WAV format
+            # Use ffmpeg to convert: mono, target sample rate, WAV format
             (
                 ffmpeg
                 .input(input_path)
-                .output(output_path, acodec='pcm_s16le', ac=1, ar=config.SAMPLE_RATE)
+                .output(output_path, acodec='pcm_s16le', ac=1, ar=target_rate)
                 .overwrite_output()
                 .run(capture_stdout=True, capture_stderr=True, quiet=True)
             )
@@ -182,6 +238,7 @@ def validate_audio_file(
     file_size: int,
     audio_bytes: bytes,
     content_type: Optional[str] = None,
+    target_sample_rate: Optional[int] = None,
 ) -> Tuple[float, bytes]:
     """
     Complete validation and preprocessing of audio file.
@@ -191,6 +248,7 @@ def validate_audio_file(
         file_size: Size of file in bytes
         audio_bytes: Raw audio file bytes
         content_type: MIME type of the file (optional)
+        target_sample_rate: Target sample rate for preprocessing (optional)
 
     Returns:
         Tuple of (duration in seconds, preprocessed audio bytes)
@@ -208,6 +266,6 @@ def validate_audio_file(
     duration = validate_audio_duration(audio_bytes)
 
     # Preprocess audio
-    preprocessed_bytes = preprocess_audio(audio_bytes)
+    preprocessed_bytes = preprocess_audio(audio_bytes, target_sample_rate)
 
     return duration, preprocessed_bytes

@@ -44,3 +44,12 @@ class HealthResponse(BaseModel):
 
     status: str = Field(..., description="Service status")
     version: str = Field(..., description="API version")
+
+
+class VoiceCloneResponse(BaseModel):
+    """Response model for voice cloning."""
+
+    success: bool = Field(..., description="Whether generation succeeded")
+    audio_session_id: Optional[str] = Field(None, description="Session ID to retrieve generated audio")
+    duration: Optional[float] = Field(None, description="Generated audio duration in seconds")
+    error: Optional[str] = Field(None, description="Error message if failed")

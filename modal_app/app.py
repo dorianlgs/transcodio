@@ -53,6 +53,28 @@ anthropic_image = (
     )
 )
 
+# TTS image for Qwen3-TTS voice cloning
+tts_image = (
+    modal.Image.from_registry(
+        "nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04", add_python="3.12"
+    )
+    .env({
+        "HF_HOME": "/models",
+        "DEBIAN_FRONTEND": "noninteractive",
+    })
+    .apt_install("ffmpeg", "libsndfile1")
+    .pip_install(
+        "qwen-tts",
+        "torch",
+        "transformers",
+        "soundfile>=0.12.1",
+    )
+    .add_local_file(
+        str(Path(__file__).parent.parent / "config.py"),
+        "/root/config.py"
+    )
+)
+
 # Create Modal app
 app = modal.App(config.MODAL_APP_NAME)
 
@@ -595,6 +617,113 @@ class SpeakerDiarizerModel:
             print(f"Diarization error: {e}")
             print(traceback.format_exc())
             return []
+
+
+@app.cls(
+    image=tts_image,
+    gpu=config.MODAL_GPU_TYPE,
+    scaledown_window=config.TTS_CONTAINER_IDLE_TIMEOUT,
+    timeout=300,
+    memory=8192,
+    volumes={"/models": volume},
+)
+class Qwen3TTSVoiceCloner:
+    """Qwen3-TTS model for voice cloning."""
+
+    @modal.enter()
+    def load_model(self):
+        """Load Qwen3-TTS model once per container."""
+        import torch
+        import time
+
+        start_time = time.time()
+        print(f"Loading Qwen3-TTS model: {config.TTS_MODEL_ID}...")
+
+        from qwen_tts import Qwen3TTSModel
+
+        self.model = Qwen3TTSModel.from_pretrained(
+            config.TTS_MODEL_ID,
+            device_map="cuda:0",
+            dtype=torch.bfloat16,
+        )
+
+        load_time = time.time() - start_time
+        print(f"Qwen3-TTS model loaded in {load_time:.2f}s")
+
+    @modal.method()
+    def generate_voice_clone(
+        self,
+        ref_audio_bytes: bytes,
+        ref_text: str,
+        target_text: str,
+        language: str
+    ) -> Dict[str, Any]:
+        """
+        Generate audio with cloned voice.
+
+        Args:
+            ref_audio_bytes: Reference audio bytes (WAV format)
+            ref_text: Transcription of the reference audio
+            target_text: Text to synthesize with cloned voice
+            language: Target language
+
+        Returns:
+            Dict with audio_bytes and metadata
+        """
+        import soundfile as sf
+        import tempfile
+        import time
+        import os
+
+        try:
+            start_time = time.time()
+
+            # Save reference audio to temp file
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_ref:
+                tmp_ref.write(ref_audio_bytes)
+                ref_audio_path = tmp_ref.name
+
+            print(f"Generating voice clone for {len(target_text)} chars in {language}...")
+
+            # Generate audio with voice cloning
+            wavs, sr = self.model.generate_voice_clone(
+                text=target_text,
+                language=language,
+                ref_audio=ref_audio_path,
+                ref_text=ref_text,
+            )
+
+            # Convert to bytes
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_out:
+                sf.write(tmp_out.name, wavs[0], sr)
+                with open(tmp_out.name, "rb") as f:
+                    audio_bytes = f.read()
+                output_path = tmp_out.name
+
+            # Cleanup temp files
+            os.unlink(ref_audio_path)
+            os.unlink(output_path)
+
+            generation_time = time.time() - start_time
+            duration = len(wavs[0]) / sr
+
+            print(f"Voice clone generated in {generation_time:.2f}s, duration: {duration:.2f}s")
+
+            return {
+                "success": True,
+                "audio_bytes": audio_bytes,
+                "duration": duration,
+                "sample_rate": sr,
+            }
+
+        except Exception as e:
+            import traceback
+            print(f"Voice clone error: {e}")
+            print(traceback.format_exc())
+            return {
+                "success": False,
+                "error": str(e),
+            }
 
 
 @app.cls(

@@ -114,6 +114,22 @@ MINUTES_MAX_OUTPUT_TOKENS = 2048  # Maximum output tokens (minutes)
 MINUTES_TEMPERATURE = 0.3  # Low temperature for consistent, structured output
 MINUTES_CONTAINER_IDLE_TIMEOUT = 60  # 1 minute (shorter than STT since less frequent)
 
+# Voice Cloning Configuration (Qwen3-TTS)
+ENABLE_VOICE_CLONING = True
+TTS_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+TTS_CONTAINER_IDLE_TIMEOUT = 120
+
+# Voice Cloning Constraints
+VOICE_CLONE_MIN_REF_DURATION = 3   # seconds
+VOICE_CLONE_MAX_REF_DURATION = 60  # seconds
+VOICE_CLONE_MAX_TARGET_TEXT = 500  # characters
+VOICE_CLONE_SAMPLE_RATE = 24000
+
+VOICE_CLONE_LANGUAGES = [
+    "English", "Spanish", "Chinese", "Japanese", "Korean",
+    "German", "French", "Russian", "Portuguese", "Italian"
+]
+
 # Environment variables
 ENV_MODE = os.getenv("ENV", "development")
 DEBUG = ENV_MODE == "development"

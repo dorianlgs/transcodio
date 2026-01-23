@@ -35,11 +35,54 @@ const transcriptionTab = document.getElementById('transcriptionTab');
 const minutesTab = document.getElementById('minutesTab');
 const minutesTabBtn = document.getElementById('minutesTabBtn');
 
+// Mode selector elements
+const transcriptionModeBtn = document.getElementById('transcriptionModeBtn');
+const voiceCloneModeBtn = document.getElementById('voiceCloneModeBtn');
+
+// Voice clone elements
+const voiceCloneSection = document.getElementById('voiceCloneSection');
+const voiceCloneProcessing = document.getElementById('voiceCloneProcessing');
+const voiceCloneResults = document.getElementById('voiceCloneResults');
+const refUploadTab = document.getElementById('refUploadTab');
+const refRecordTab = document.getElementById('refRecordTab');
+const refUploadContent = document.getElementById('refUploadContent');
+const refRecordContent = document.getElementById('refRecordContent');
+const refUploadArea = document.getElementById('refUploadArea');
+const refFileInput = document.getElementById('refFileInput');
+const refAudioPreview = document.getElementById('refAudioPreview');
+const refAudioPlayer = document.getElementById('refAudioPlayer');
+const removeRefAudio = document.getElementById('removeRefAudio');
+const recordBtn = document.getElementById('recordBtn');
+const recordTimer = document.getElementById('recordTimer');
+const recordProgressBar = document.getElementById('recordProgressBar');
+const recordedPreview = document.getElementById('recordedPreview');
+const recordedAudioPlayer = document.getElementById('recordedAudioPlayer');
+const removeRecordedAudio = document.getElementById('removeRecordedAudio');
+const refTextInput = document.getElementById('refTextInput');
+const targetTextInput = document.getElementById('targetTextInput');
+const charCount = document.getElementById('charCount');
+const languageSelect = document.getElementById('languageSelect');
+const generateVoiceBtn = document.getElementById('generateVoiceBtn');
+const generatedAudioPlayer = document.getElementById('generatedAudioPlayer');
+const generatedDuration = document.getElementById('generatedDuration');
+const downloadVoiceBtn = document.getElementById('downloadVoiceBtn');
+const newVoiceCloneBtn = document.getElementById('newVoiceCloneBtn');
+
 // State
 let currentTranscription = '';
 let currentFile = null;
 let currentSegments = []; // Store segments for subtitle export
 let currentMinutes = null; // Store minutes data
+
+// Voice clone state
+let currentMode = 'transcription';
+let refAudioFile = null;
+let refAudioBlob = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingStartTime = null;
+let recordingInterval = null;
+let generatedAudioSessionId = null;
 
 // Initialize
 function init() {
@@ -81,6 +124,36 @@ function setupEventListeners() {
             switchTab(btn.dataset.tab);
         });
     });
+
+    // Mode switching
+    transcriptionModeBtn.addEventListener('click', () => switchMode('transcription'));
+    voiceCloneModeBtn.addEventListener('click', () => switchMode('voice-clone'));
+
+    // Voice clone - Reference audio tabs
+    refUploadTab.addEventListener('click', () => switchRefAudioTab('upload'));
+    refRecordTab.addEventListener('click', () => switchRefAudioTab('record'));
+
+    // Voice clone - Upload area
+    refUploadArea.addEventListener('click', () => refFileInput.click());
+    refFileInput.addEventListener('change', handleRefFileSelect);
+    refUploadArea.addEventListener('dragover', (e) => { e.preventDefault(); refUploadArea.classList.add('dragover'); });
+    refUploadArea.addEventListener('dragleave', (e) => { e.preventDefault(); refUploadArea.classList.remove('dragover'); });
+    refUploadArea.addEventListener('drop', handleRefFileDrop);
+    removeRefAudio.addEventListener('click', removeRefAudioFile);
+
+    // Voice clone - Recording
+    recordBtn.addEventListener('click', toggleRecording);
+    removeRecordedAudio.addEventListener('click', removeRecordedAudioFile);
+
+    // Voice clone - Text input
+    targetTextInput.addEventListener('input', updateCharCount);
+
+    // Voice clone - Generate
+    generateVoiceBtn.addEventListener('click', generateVoiceClone);
+
+    // Voice clone - Results
+    downloadVoiceBtn.addEventListener('click', downloadGeneratedVoice);
+    newVoiceCloneBtn.addEventListener('click', resetVoiceClone);
 }
 
 // Tab switching function
@@ -728,6 +801,297 @@ function resetApp() {
     // Reset checkboxes
     enableDiarizationCheckbox.checked = false;
     enableMinutesCheckbox.checked = false;
+}
+
+// ============================================
+// Voice Clone Functions
+// ============================================
+
+// Mode Switching
+function switchMode(mode) {
+    currentMode = mode;
+
+    // Update mode buttons
+    transcriptionModeBtn.classList.toggle('active', mode === 'transcription');
+    voiceCloneModeBtn.classList.toggle('active', mode === 'voice-clone');
+
+    // Show/hide sections based on mode
+    if (mode === 'transcription') {
+        uploadSection.classList.remove('hidden');
+        processingSection.classList.add('hidden');
+        resultsSection.classList.add('hidden');
+        voiceCloneSection.classList.add('hidden');
+        voiceCloneProcessing.classList.add('hidden');
+        voiceCloneResults.classList.add('hidden');
+    } else {
+        uploadSection.classList.add('hidden');
+        processingSection.classList.add('hidden');
+        resultsSection.classList.add('hidden');
+        voiceCloneSection.classList.remove('hidden');
+        voiceCloneProcessing.classList.add('hidden');
+        voiceCloneResults.classList.add('hidden');
+    }
+}
+
+// Reference Audio Tab Switching
+function switchRefAudioTab(tab) {
+    refUploadTab.classList.toggle('active', tab === 'upload');
+    refRecordTab.classList.toggle('active', tab === 'record');
+    refUploadContent.classList.toggle('active', tab === 'upload');
+    refRecordContent.classList.toggle('active', tab === 'record');
+}
+
+// Handle Reference File Selection
+function handleRefFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) {
+        loadRefAudioFile(file);
+    }
+}
+
+function handleRefFileDrop(event) {
+    event.preventDefault();
+    refUploadArea.classList.remove('dragover');
+    const file = event.dataTransfer.files[0];
+    if (file) {
+        loadRefAudioFile(file);
+    }
+}
+
+function loadRefAudioFile(file) {
+    // Validate file type
+    if (!file.type.startsWith('audio/')) {
+        showToast('Por favor sube un archivo de audio valido', 'error');
+        return;
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+        showToast('El archivo es demasiado grande. Maximo 10MB.', 'error');
+        return;
+    }
+
+    refAudioFile = file;
+    refAudioBlob = null; // Clear any recorded audio
+
+    // Show preview
+    const url = URL.createObjectURL(file);
+    refAudioPlayer.src = url;
+    refUploadArea.classList.add('hidden');
+    refAudioPreview.classList.remove('hidden');
+}
+
+function removeRefAudioFile() {
+    refAudioFile = null;
+    refAudioPlayer.src = '';
+    refFileInput.value = '';
+    refUploadArea.classList.remove('hidden');
+    refAudioPreview.classList.add('hidden');
+}
+
+// Recording Functions
+async function toggleRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        stopRecording();
+    } else {
+        await startRecording();
+    }
+}
+
+async function startRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        recordedChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+                recordedChunks.push(e.data);
+            }
+        };
+
+        mediaRecorder.onstop = () => {
+            stream.getTracks().forEach(track => track.stop());
+            refAudioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+            refAudioFile = null; // Clear any uploaded file
+
+            // Show recorded preview
+            const url = URL.createObjectURL(refAudioBlob);
+            recordedAudioPlayer.src = url;
+            recordedPreview.classList.remove('hidden');
+        };
+
+        mediaRecorder.start(100);
+        recordingStartTime = Date.now();
+        recordBtn.classList.add('recording');
+
+        // Start timer
+        recordingInterval = setInterval(() => {
+            const elapsed = (Date.now() - recordingStartTime) / 1000;
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = Math.floor(elapsed % 60);
+            recordTimer.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')} / 01:00`;
+            recordProgressBar.style.width = `${Math.min(100, (elapsed / 60) * 100)}%`;
+
+            // Auto-stop at 60 seconds
+            if (elapsed >= 60) {
+                stopRecording();
+            }
+        }, 100);
+
+    } catch (error) {
+        console.error('Recording error:', error);
+        showToast('No se pudo acceder al microfono', 'error');
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        recordBtn.classList.remove('recording');
+        clearInterval(recordingInterval);
+    }
+}
+
+function removeRecordedAudioFile() {
+    refAudioBlob = null;
+    recordedAudioPlayer.src = '';
+    recordedPreview.classList.add('hidden');
+    recordTimer.textContent = '00:00 / 01:00';
+    recordProgressBar.style.width = '0%';
+}
+
+// Character Counter
+function updateCharCount() {
+    const count = targetTextInput.value.length;
+    charCount.textContent = count;
+}
+
+// Generate Voice Clone
+async function generateVoiceClone() {
+    // Get reference audio
+    let audioToSend = null;
+    if (refAudioFile) {
+        audioToSend = refAudioFile;
+    } else if (refAudioBlob) {
+        audioToSend = new File([refAudioBlob], 'recording.webm', { type: 'audio/webm' });
+    }
+
+    if (!audioToSend) {
+        showToast('Por favor sube o graba un audio de referencia', 'error');
+        return;
+    }
+
+    const refText = refTextInput.value.trim();
+    if (!refText) {
+        showToast('Por favor escribe la transcripcion del audio de referencia', 'error');
+        return;
+    }
+
+    const targetText = targetTextInput.value.trim();
+    if (!targetText) {
+        showToast('Por favor escribe el texto a sintetizar', 'error');
+        return;
+    }
+
+    if (targetText.length > 500) {
+        showToast('El texto a sintetizar no puede exceder 500 caracteres', 'error');
+        return;
+    }
+
+    const language = languageSelect.value;
+
+    // Show processing
+    voiceCloneSection.classList.add('hidden');
+    voiceCloneProcessing.classList.remove('hidden');
+
+    try {
+        const formData = new FormData();
+        formData.append('ref_audio', audioToSend);
+        formData.append('ref_text', refText);
+        formData.append('target_text', targetText);
+        formData.append('language', language);
+
+        const response = await fetch('/api/voice-clone', {
+            method: 'POST',
+            body: formData,
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.detail || 'Error al generar la voz');
+        }
+
+        if (!result.success) {
+            throw new Error(result.error || 'Error al generar la voz');
+        }
+
+        // Show results
+        generatedAudioSessionId = result.audio_session_id;
+        generatedAudioPlayer.src = `/api/audio/${result.audio_session_id}`;
+        generatedDuration.textContent = formatDuration(result.duration || 0);
+
+        voiceCloneProcessing.classList.add('hidden');
+        voiceCloneResults.classList.remove('hidden');
+
+        showToast('Voz generada exitosamente!', 'success');
+
+    } catch (error) {
+        console.error('Voice clone error:', error);
+        showToast(error.message, 'error');
+        voiceCloneProcessing.classList.add('hidden');
+        voiceCloneSection.classList.remove('hidden');
+    }
+}
+
+// Download Generated Voice
+function downloadGeneratedVoice() {
+    if (!generatedAudioSessionId) {
+        showToast('No hay audio para descargar', 'error');
+        return;
+    }
+
+    const a = document.createElement('a');
+    a.href = `/api/audio/${generatedAudioSessionId}`;
+    a.download = `voice-clone-${Date.now()}.wav`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast('Descargado!', 'success');
+}
+
+// Reset Voice Clone
+function resetVoiceClone() {
+    // Clear reference audio
+    refAudioFile = null;
+    refAudioBlob = null;
+    refAudioPlayer.src = '';
+    refFileInput.value = '';
+    refUploadArea.classList.remove('hidden');
+    refAudioPreview.classList.add('hidden');
+    recordedAudioPlayer.src = '';
+    recordedPreview.classList.add('hidden');
+    recordTimer.textContent = '00:00 / 01:00';
+    recordProgressBar.style.width = '0%';
+
+    // Clear text inputs
+    refTextInput.value = '';
+    targetTextInput.value = '';
+    charCount.textContent = '0';
+    languageSelect.value = 'Spanish';
+
+    // Clear generated audio
+    generatedAudioSessionId = null;
+    generatedAudioPlayer.src = '';
+
+    // Show voice clone section
+    voiceCloneResults.classList.add('hidden');
+    voiceCloneProcessing.classList.add('hidden');
+    voiceCloneSection.classList.remove('hidden');
+
+    // Switch to upload tab
+    switchRefAudioTab('upload');
 }
 
 // Initialize app

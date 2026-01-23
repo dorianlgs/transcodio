@@ -27,6 +27,23 @@
 
         <!-- Main Content -->
         <main class="main-content">
+            <!-- Mode Selector -->
+            <div class="mode-selector">
+                <button class="mode-btn active" data-mode="transcription" id="transcriptionModeBtn">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M10 2C5.58 2 2 5.58 2 10C2 14.42 5.58 18 10 18C14.42 18 18 14.42 18 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        <path d="M10 6V14M6 10H14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    Transcribir
+                </button>
+                <button class="mode-btn" data-mode="voice-clone" id="voiceCloneModeBtn">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M10 2V18M6 4V16M14 4V16M2 7V13M18 7V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    Clonar Voz
+                </button>
+            </div>
+
             <!-- Upload Section -->
             <section class="upload-section" id="uploadSection">
                 <div class="upload-area" id="uploadArea">
@@ -170,6 +187,142 @@
                         </div>
                     </div>
                 </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Voice Clone Section -->
+            <section class="voice-clone-section hidden" id="voiceCloneSection">
+                <div class="voice-clone-card">
+                    <h2>Clonar Voz</h2>
+                    <p class="voice-clone-subtitle">Sube un audio de referencia y genera nuevos textos con la misma voz</p>
+
+                    <!-- Reference Audio -->
+                    <div class="voice-clone-form-group">
+                        <label class="form-label">Audio de Referencia (3-30 segundos)</label>
+                        <div class="ref-audio-tabs">
+                            <button class="ref-audio-tab active" data-tab="upload" id="refUploadTab">Subir Archivo</button>
+                            <button class="ref-audio-tab" data-tab="record" id="refRecordTab">Grabar</button>
+                        </div>
+
+                        <!-- Upload Tab -->
+                        <div class="ref-audio-content active" id="refUploadContent">
+                            <div class="ref-upload-area" id="refUploadArea">
+                                <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+                                    <path d="M20 8V32M8 20H32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                                <span>Arrastra o haz clic para subir</span>
+                                <input type="file" id="refFileInput" accept="audio/*" hidden>
+                            </div>
+                            <div class="ref-audio-preview hidden" id="refAudioPreview">
+                                <audio id="refAudioPlayer" controls></audio>
+                                <button class="btn-icon" id="removeRefAudio" title="Eliminar">
+                                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                        <path d="M4 4L14 14M4 14L14 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Record Tab -->
+                        <div class="ref-audio-content" id="refRecordContent">
+                            <div class="record-controls">
+                                <button class="record-btn" id="recordBtn">
+                                    <span class="record-icon"></span>
+                                </button>
+                                <div class="record-timer" id="recordTimer">00:00 / 00:30</div>
+                                <div class="record-progress">
+                                    <div class="record-progress-bar" id="recordProgressBar"></div>
+                                </div>
+                            </div>
+                            <div class="recorded-preview hidden" id="recordedPreview">
+                                <audio id="recordedAudioPlayer" controls></audio>
+                                <button class="btn-icon" id="removeRecordedAudio" title="Eliminar">
+                                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                        <path d="M4 4L14 14M4 14L14 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Reference Text -->
+                    <div class="voice-clone-form-group">
+                        <label class="form-label" for="refTextInput">Transcripcion del Audio de Referencia</label>
+                        <textarea id="refTextInput" class="form-textarea" placeholder="Escribe exactamente lo que dice el audio de referencia..." rows="3"></textarea>
+                    </div>
+
+                    <!-- Target Text -->
+                    <div class="voice-clone-form-group">
+                        <label class="form-label" for="targetTextInput">Texto a Sintetizar (max. 500 caracteres)</label>
+                        <textarea id="targetTextInput" class="form-textarea" placeholder="Escribe el texto que quieres generar con la voz clonada..." rows="4" maxlength="500"></textarea>
+                        <div class="char-counter"><span id="charCount">0</span> / 500</div>
+                    </div>
+
+                    <!-- Language Selector -->
+                    <div class="voice-clone-form-group">
+                        <label class="form-label" for="languageSelect">Idioma</label>
+                        <select id="languageSelect" class="form-select">
+                            <option value="Spanish" selected>Espanol</option>
+                            <option value="English">Ingles</option>
+                            <option value="Chinese">Chino</option>
+                            <option value="Japanese">Japones</option>
+                            <option value="Korean">Coreano</option>
+                            <option value="German">Aleman</option>
+                            <option value="French">Frances</option>
+                            <option value="Russian">Ruso</option>
+                            <option value="Portuguese">Portugues</option>
+                            <option value="Italian">Italiano</option>
+                        </select>
+                    </div>
+
+                    <!-- Generate Button -->
+                    <button class="btn btn-primary btn-generate" id="generateVoiceBtn">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M10 2V18M6 4V16M14 4V16M2 7V13M18 7V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        </svg>
+                        Generar Voz
+                    </button>
+                </div>
+            </section>
+
+            <!-- Voice Clone Processing Section -->
+            <section class="voice-clone-processing hidden" id="voiceCloneProcessing">
+                <div class="processing-card">
+                    <div class="spinner"></div>
+                    <h3>Generando voz clonada...</h3>
+                    <p class="processing-status">Esto puede tardar unos segundos</p>
+                </div>
+            </section>
+
+            <!-- Voice Clone Results Section -->
+            <section class="voice-clone-results hidden" id="voiceCloneResults">
+                <div class="results-header">
+                    <h2>Voz Generada</h2>
+                    <div class="results-actions">
+                        <button class="btn btn-secondary" id="downloadVoiceBtn">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                <path d="M9 3 L9 12 M5 9 L9 13 L13 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <path d="M3 15 L15 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            Descargar WAV
+                        </button>
+                        <button class="btn btn-primary" id="newVoiceCloneBtn">Nueva Clonacion</button>
+                    </div>
+                </div>
+
+                <div class="voice-result-card">
+                    <div class="audio-player-container">
+                        <audio id="generatedAudioPlayer" controls></audio>
+                    </div>
+                    <div class="voice-result-info">
+                        <span class="metadata-item">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/>
+                                <path d="M8 8 L8 5 M8 8 L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            <span id="generatedDuration">--</span>
+                        </span>
                     </div>
                 </div>
             </section>
