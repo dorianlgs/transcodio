@@ -62,6 +62,8 @@ const refTextInput = document.getElementById('refTextInput');
 const targetTextInput = document.getElementById('targetTextInput');
 const charCount = document.getElementById('charCount');
 const languageSelect = document.getElementById('languageSelect');
+const ttsModelSelect = document.getElementById('ttsModelSelect');
+const modelHint = document.getElementById('modelHint');
 const generateVoiceBtn = document.getElementById('generateVoiceBtn');
 const generatedAudioPlayer = document.getElementById('generatedAudioPlayer');
 const generatedDuration = document.getElementById('generatedDuration');
@@ -147,6 +149,9 @@ function setupEventListeners() {
 
     // Voice clone - Text input
     targetTextInput.addEventListener('input', updateCharCount);
+
+    // Voice clone - Model selection
+    ttsModelSelect.addEventListener('change', updateModelHint);
 
     // Voice clone - Generate
     generateVoiceBtn.addEventListener('click', generateVoiceClone);
@@ -967,6 +972,16 @@ function updateCharCount() {
     charCount.textContent = count;
 }
 
+// Update Model Hint
+function updateModelHint() {
+    const model = ttsModelSelect.value;
+    if (model === 'higgs') {
+        modelHint.textContent = 'Alta calidad y expresivo. Mejor para resultados profesionales.';
+    } else {
+        modelHint.textContent = 'Rapido y buena calidad para la mayoria de casos.';
+    }
+}
+
 // Generate Voice Clone
 async function generateVoiceClone() {
     // Get reference audio
@@ -1000,6 +1015,7 @@ async function generateVoiceClone() {
     }
 
     const language = languageSelect.value;
+    const ttsModel = ttsModelSelect.value;
 
     // Show processing
     voiceCloneSection.classList.add('hidden');
@@ -1011,6 +1027,7 @@ async function generateVoiceClone() {
         formData.append('ref_text', refText);
         formData.append('target_text', targetText);
         formData.append('language', language);
+        formData.append('tts_model', ttsModel);
 
         const response = await fetch('/api/voice-clone', {
             method: 'POST',
@@ -1080,6 +1097,8 @@ function resetVoiceClone() {
     targetTextInput.value = '';
     charCount.textContent = '0';
     languageSelect.value = 'Spanish';
+    ttsModelSelect.value = 'qwen';
+    updateModelHint();
 
     // Clear generated audio
     generatedAudioSessionId = null;

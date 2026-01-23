@@ -259,6 +259,16 @@
                         <div class="char-counter"><span id="charCount">0</span> / 500</div>
                     </div>
 
+                    <!-- Model Selector -->
+                    <div class="voice-clone-form-group">
+                        <label class="form-label" for="ttsModelSelect">Modelo TTS</label>
+                        <select id="ttsModelSelect" class="form-select">
+                            <option value="qwen" selected>Qwen3-TTS (Rapido, 1.7B)</option>
+                            <option value="higgs">Higgs Audio V2 (Alta calidad, 3B)</option>
+                        </select>
+                        <p class="form-hint" id="modelHint">Rapido y buena calidad para la mayoria de casos</p>
+                    </div>
+
                     <!-- Language Selector -->
                     <div class="voice-clone-form-group">
                         <label class="form-label" for="languageSelect">Idioma</label>

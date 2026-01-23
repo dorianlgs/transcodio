@@ -54,7 +54,7 @@ anthropic_image = (
 )
 
 # TTS image for Qwen3-TTS voice cloning
-tts_image = (
+qwen_tts_image = (
     modal.Image.from_registry(
         "nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04", add_python="3.12"
     )
@@ -68,6 +68,51 @@ tts_image = (
         "torch",
         "transformers",
         "soundfile>=0.12.1",
+    )
+    .add_local_file(
+        str(Path(__file__).parent.parent / "config.py"),
+        "/root/config.py"
+    )
+)
+
+# TTS image for Higgs Audio V2 voice cloning (using Replicate's working fork)
+higgs_tts_image = (
+    modal.Image.from_registry(
+        "nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04", add_python="3.11"
+    )
+    .env({
+        "HF_HOME": "/models",
+        "DEBIAN_FRONTEND": "noninteractive",
+    })
+    .apt_install("ffmpeg", "libsndfile1", "git")
+    .run_commands(
+        # Clone the Replicate fork which has boson_multimodal bundled correctly
+        "git clone https://github.com/lucataco/cog-higgs-audio.git /opt/higgs-audio",
+    )
+    .pip_install(
+        # Install dependencies from the working Replicate implementation
+        "torch",
+        "torchaudio",
+        "torchvision",
+        "transformers>=4.45.1,<4.47.0",
+        "descript-audio-codec",
+        "librosa",
+        "dacite",
+        "pydantic",
+        "vector_quantize_pytorch",
+        "loguru",
+        "pydub",
+        "omegaconf",
+        "langid",
+        "jieba",
+        "json_repair",
+        "accelerate>=0.26.0",
+        "soundfile>=0.12.1",
+        "pandas",
+    )
+    .run_commands(
+        # Install the package in editable mode
+        "cd /opt/higgs-audio && pip install -e .",
     )
     .add_local_file(
         str(Path(__file__).parent.parent / "config.py"),
@@ -620,11 +665,11 @@ class SpeakerDiarizerModel:
 
 
 @app.cls(
-    image=tts_image,
-    gpu=config.MODAL_GPU_TYPE,
+    image=qwen_tts_image,
+    gpu=config.TTS_MODELS["qwen"]["gpu_type"],
     scaledown_window=config.TTS_CONTAINER_IDLE_TIMEOUT,
     timeout=300,
-    memory=8192,
+    memory=config.TTS_MODELS["qwen"]["memory_mb"],
     volumes={"/models": volume},
 )
 class Qwen3TTSVoiceCloner:
@@ -636,13 +681,14 @@ class Qwen3TTSVoiceCloner:
         import torch
         import time
 
+        model_config = config.TTS_MODELS["qwen"]
         start_time = time.time()
-        print(f"Loading Qwen3-TTS model: {config.TTS_MODEL_ID}...")
+        print(f"Loading Qwen3-TTS model: {model_config['model_id']}...")
 
         from qwen_tts import Qwen3TTSModel
 
         self.model = Qwen3TTSModel.from_pretrained(
-            config.TTS_MODEL_ID,
+            model_config["model_id"],
             device_map="cuda:0",
             dtype=torch.bfloat16,
         )
@@ -719,6 +765,151 @@ class Qwen3TTSVoiceCloner:
         except Exception as e:
             import traceback
             print(f"Voice clone error: {e}")
+            print(traceback.format_exc())
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+
+@app.cls(
+    image=higgs_tts_image,
+    gpu=config.TTS_MODELS["higgs"]["gpu_type"],
+    scaledown_window=config.TTS_CONTAINER_IDLE_TIMEOUT,
+    timeout=600,
+    memory=config.TTS_MODELS["higgs"]["memory_mb"],
+    volumes={"/models": volume},
+)
+class HiggsAudioVoiceCloner:
+    """Higgs Audio V2 model for high-quality voice cloning."""
+
+    @modal.enter()
+    def load_model(self):
+        """Load Higgs Audio V2 model once per container."""
+        import sys
+        import time
+        import torch
+
+        # Add the higgs-audio package to path
+        sys.path.insert(0, "/opt/higgs-audio")
+
+        start_time = time.time()
+        model_config = config.TTS_MODELS["higgs"]
+        print(f"Loading Higgs Audio V2 model: {model_config['model_id']}...")
+
+        from boson_multimodal.serve.serve_engine import HiggsAudioServeEngine
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.engine = HiggsAudioServeEngine(
+            model_config["model_id"],
+            model_config["tokenizer_id"],
+            device=device,
+        )
+
+        load_time = time.time() - start_time
+        print(f"Higgs Audio V2 model loaded in {load_time:.2f}s")
+
+    @modal.method()
+    def generate_voice_clone(
+        self,
+        ref_audio_bytes: bytes,
+        ref_text: str,
+        target_text: str,
+        language: str
+    ) -> Dict[str, Any]:
+        """
+        Generate audio with cloned voice using Higgs Audio V2.
+
+        Args:
+            ref_audio_bytes: Reference audio bytes (WAV format)
+            ref_text: Transcription of the reference audio
+            target_text: Text to synthesize with cloned voice
+            language: Target language
+
+        Returns:
+            Dict with audio_bytes and metadata
+        """
+        import sys
+        sys.path.insert(0, "/opt/higgs-audio")
+
+        import tempfile
+        import time
+        import os
+        import torch
+        import torchaudio
+
+        try:
+            start_time = time.time()
+
+            from boson_multimodal.data_types import ChatMLSample, Message, AudioContent
+
+            # Save reference audio to temp file
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_ref:
+                tmp_ref.write(ref_audio_bytes)
+                ref_audio_path = tmp_ref.name
+
+            print(f"Generating voice clone for {len(target_text)} chars with Higgs Audio V2...")
+
+            # Build system prompt
+            system_prompt = (
+                "Generate audio following instruction.\n\n<|scene_desc_start|>\n"
+                "Audio is recorded from a quiet room.\n<|scene_desc_end|>"
+            )
+
+            # Load reference audio for voice cloning
+            ref_audio_content = AudioContent(audio_path=ref_audio_path)
+
+            # Build messages with reference audio
+            messages = [
+                Message(role="system", content=system_prompt),
+                Message(
+                    role="user",
+                    content=[
+                        "Clone the voice from this audio: ",
+                        ref_audio_content,
+                        f"\n\nReference text: {ref_text}\n\nNow generate: {target_text}",
+                    ]
+                ),
+            ]
+
+            # Generate audio
+            output = self.engine.generate(
+                chat_ml_sample=ChatMLSample(messages=messages),
+                max_new_tokens=2048,
+                temperature=0.3,
+                top_p=0.95,
+            )
+
+            # Get audio and sample rate
+            audio_array = output.audio
+            sr = output.sampling_rate
+
+            # Convert to bytes
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_out:
+                torchaudio.save(tmp_out.name, torch.from_numpy(audio_array)[None, :], sr)
+                with open(tmp_out.name, "rb") as f:
+                    audio_bytes = f.read()
+                output_path = tmp_out.name
+
+            # Cleanup temp files
+            os.unlink(ref_audio_path)
+            os.unlink(output_path)
+
+            generation_time = time.time() - start_time
+            duration = len(audio_array) / sr
+
+            print(f"Higgs voice clone generated in {generation_time:.2f}s, duration: {duration:.2f}s")
+
+            return {
+                "success": True,
+                "audio_bytes": audio_bytes,
+                "duration": duration,
+                "sample_rate": sr,
+            }
+
+        except Exception as e:
+            import traceback
+            print(f"Higgs voice clone error: {e}")
             print(traceback.format_exc())
             return {
                 "success": False,

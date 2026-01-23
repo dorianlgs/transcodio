@@ -114,10 +114,33 @@ MINUTES_MAX_OUTPUT_TOKENS = 2048  # Maximum output tokens (minutes)
 MINUTES_TEMPERATURE = 0.3  # Low temperature for consistent, structured output
 MINUTES_CONTAINER_IDLE_TIMEOUT = 60  # 1 minute (shorter than STT since less frequent)
 
-# Voice Cloning Configuration (Qwen3-TTS)
+# Voice Cloning Configuration
 ENABLE_VOICE_CLONING = True
-TTS_MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
 TTS_CONTAINER_IDLE_TIMEOUT = 120
+
+# Available TTS Models
+TTS_MODELS = {
+    "qwen": {
+        "name": "Qwen3-TTS",
+        "model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+        "sample_rate": 24000,
+        "gpu_type": "L4",
+        "memory_mb": 8192,
+        "description": "Fast, good quality (1.7B params)",
+    },
+    "higgs": {
+        "name": "Higgs Audio V2",
+        "model_id": "bosonai/higgs-audio-v2-generation-3B-base",
+        "tokenizer_id": "bosonai/higgs-audio-v2-tokenizer",
+        "sample_rate": 24000,
+        "gpu_type": "L4",
+        "memory_mb": 24576,
+        "description": "High quality, expressive (3B params)",
+    },
+}
+
+# Default TTS model
+DEFAULT_TTS_MODEL = "qwen"
 
 # Voice Cloning Constraints
 VOICE_CLONE_MIN_REF_DURATION = 3   # seconds

@@ -428,6 +428,7 @@ async def voice_clone(
     ref_text: str = Form(..., description="Transcription of the reference audio"),
     target_text: str = Form(..., description="Text to synthesize with cloned voice"),
     language: str = Form(default="Spanish", description="Target language"),
+    tts_model: str = Form(default="qwen", description="TTS model to use: qwen or higgs"),
 ):
     """
     Clone a voice and synthesize new text.
@@ -437,6 +438,7 @@ async def voice_clone(
         ref_text: Transcription of the reference audio
         target_text: Text to synthesize with cloned voice
         language: Target language (Spanish, English, etc.)
+        tts_model: TTS model to use (qwen or higgs)
 
     Returns:
         VoiceCloneResponse with audio_session_id for playback/download
@@ -449,6 +451,13 @@ async def voice_clone(
         raise HTTPException(
             status_code=503,
             detail="Voice cloning is disabled"
+        )
+
+    # Validate TTS model
+    if tts_model not in config.TTS_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid TTS model. Available: {', '.join(config.TTS_MODELS.keys())}"
         )
 
     try:
@@ -515,11 +524,15 @@ async def voice_clone(
                 detail=f"Reference audio too long. Maximum {config.VOICE_CLONE_MAX_REF_DURATION} seconds."
             )
 
-        # Import Modal and lookup TTS model
+        # Import Modal and lookup TTS model based on selection
         try:
             import modal
 
-            TTSModel = modal.Cls.from_name(config.MODAL_APP_NAME, "Qwen3TTSVoiceCloner")
+            # Select the appropriate model class
+            if tts_model == "higgs":
+                TTSModel = modal.Cls.from_name(config.MODAL_APP_NAME, "HiggsAudioVoiceCloner")
+            else:
+                TTSModel = modal.Cls.from_name(config.MODAL_APP_NAME, "Qwen3TTSVoiceCloner")
             model = TTSModel()
         except Exception as e:
             raise HTTPException(

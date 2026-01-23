@@ -947,6 +947,13 @@ body {
     margin-top: 0.25rem;
 }
 
+.form-hint {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 0.5rem;
+    font-style: italic;
+}
+
 /* Reference Audio Tabs */
 .ref-audio-tabs {
     display: flex;
