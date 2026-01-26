@@ -137,6 +137,14 @@ TTS_MODELS = {
         "memory_mb": 24576,
         "description": "High quality, expressive (3B params)",
     },
+    "fish": {
+        "name": "Fish Audio S1",
+        "model_id": "fishaudio/openaudio-s1-mini",
+        "sample_rate": 44100,
+        "gpu_type": "L4",
+        "memory_mb": 16384,
+        "description": "SOTA voice cloning, multilingual (0.5B params)",
+    },
 }
 
 # Default TTS model

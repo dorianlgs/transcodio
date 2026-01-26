@@ -120,6 +120,69 @@ higgs_tts_image = (
     )
 )
 
+# TTS image for Fish Audio (OpenAudio S1) voice cloning
+fish_tts_image = (
+    modal.Image.from_registry(
+        "nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04", add_python="3.12"
+    )
+    .env({
+        "HF_HOME": "/models",
+        "DEBIAN_FRONTEND": "noninteractive",
+    })
+    .apt_install("ffmpeg", "libsndfile1", "git")
+    .run_commands(
+        # Clone Fish Speech repository
+        "git clone https://github.com/fishaudio/fish-speech.git /opt/fish-speech",
+    )
+    .pip_install(
+        # Core dependencies
+        "torch>=2.4.1",
+        "torchaudio",
+        "transformers>=4.45.2",
+        "huggingface_hub",
+        # Fish Speech dependencies (no pyaudio/gradio/wandb - not needed for inference)
+        "numpy<=1.26.4",
+        "soundfile>=0.12.1",
+        "librosa>=0.10.1",
+        "pydantic==2.9.2",
+        "loguru>=0.6.0",
+        "einops>=0.7.0",
+        "vector_quantize_pytorch",
+        "kui>=1.6.0",
+        "ormsgpack",
+        "hydra-core>=1.3.2",
+        "omegaconf",
+        "lightning>=2.1.0",
+        "pytorch_lightning",
+        "natsort>=8.4.0",
+        "rich>=13.5.3",
+        "grpcio>=1.58.0",
+        "uvicorn>=0.30.0",
+        "loralib>=0.1.2",
+        "pyrootutils>=1.0.4",
+        "resampy>=0.4.3",
+        "einx[torch]==0.2.2",
+        "zstandard>=0.22.0",
+        "pydub",
+        "tiktoken>=0.8.0",
+        "cachetools",
+        # Audio codecs
+        "descript-audio-codec",
+        "descript-audiotools",
+        "encodec",
+        "vocos",
+        "silero-vad",
+    )
+    .run_commands(
+        # Install fish-speech without extras (skip pyaudio requirement)
+        "cd /opt/fish-speech && pip install -e . --no-deps",
+    )
+    .add_local_file(
+        str(Path(__file__).parent.parent / "config.py"),
+        "/root/config.py"
+    )
+)
+
 # Create Modal app
 app = modal.App(config.MODAL_APP_NAME)
 
@@ -908,6 +971,159 @@ class HiggsAudioVoiceCloner:
         except Exception as e:
             import traceback
             print(f"Higgs voice clone error: {e}")
+            print(traceback.format_exc())
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+
+@app.cls(
+    image=fish_tts_image,
+    gpu=config.TTS_MODELS["fish"]["gpu_type"],
+    scaledown_window=config.TTS_CONTAINER_IDLE_TIMEOUT,
+    timeout=600,
+    memory=config.TTS_MODELS["fish"]["memory_mb"],
+    volumes={"/models": volume},
+    secrets=[modal.Secret.from_name("hf-token")],
+)
+class FishAudioVoiceCloner:
+    """Fish Audio (OpenAudio S1) model for SOTA voice cloning."""
+
+    @modal.enter()
+    def load_model(self):
+        """Load Fish Audio model once per container."""
+        import sys
+        import time
+
+        # Add fish-speech to path
+        sys.path.insert(0, "/opt/fish-speech")
+
+        start_time = time.time()
+        model_config = config.TTS_MODELS["fish"]
+        print(f"Loading Fish Audio model: {model_config['model_id']}...")
+
+        from fish_speech.inference_engine import TTSInferenceEngine
+        from huggingface_hub import snapshot_download
+
+        # Download model if not already cached (uses HF_TOKEN from Modal secret)
+        model_path = snapshot_download(
+            repo_id=model_config["model_id"],
+            cache_dir="/models",
+            token=os.environ.get("HF_TOKEN"),
+        )
+
+        # Initialize the inference engine
+        self.engine = TTSInferenceEngine(
+            llama_checkpoint_path=model_path,
+            decoder_checkpoint_path=f"{model_path}/codec.pth",
+            decoder_config_name="modded_dac_vq",
+            device="cuda",
+            precision="bfloat16",
+            compile_model=False,  # Disable for compatibility
+        )
+
+        self.sample_rate = model_config["sample_rate"]
+
+        load_time = time.time() - start_time
+        print(f"Fish Audio model loaded in {load_time:.2f}s")
+
+    @modal.method()
+    def generate_voice_clone(
+        self,
+        ref_audio_bytes: bytes,
+        ref_text: str,
+        target_text: str,
+        language: str
+    ) -> Dict[str, Any]:
+        """
+        Generate audio with cloned voice using Fish Audio.
+
+        Args:
+            ref_audio_bytes: Reference audio bytes (WAV format)
+            ref_text: Transcription of the reference audio
+            target_text: Text to synthesize with cloned voice
+            language: Target language
+
+        Returns:
+            Dict with audio_bytes and metadata
+        """
+        import sys
+        sys.path.insert(0, "/opt/fish-speech")
+
+        import tempfile
+        import time
+        import os
+        import soundfile as sf
+        import numpy as np
+
+        try:
+            start_time = time.time()
+
+            from fish_speech.inference_engine.schema import ServeReferenceAudio, ServeTTSRequest
+
+            # Save reference audio to temp file
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_ref:
+                tmp_ref.write(ref_audio_bytes)
+                ref_audio_path = tmp_ref.name
+
+            print(f"Generating voice clone for {len(target_text)} chars with Fish Audio...")
+
+            # Create reference audio object
+            reference = ServeReferenceAudio(
+                audio=ref_audio_bytes,
+                text=ref_text,
+            )
+
+            # Create TTS request
+            request = ServeTTSRequest(
+                text=target_text,
+                references=[reference],
+                streaming=False,
+                format="wav",
+            )
+
+            # Generate audio
+            audio_chunks = []
+            for chunk in self.engine.inference(request):
+                if chunk["type"] == "segment":
+                    audio_chunks.append(chunk["audio"])
+                elif chunk["type"] == "final":
+                    audio_data = chunk["audio"]
+                    break
+            else:
+                # If no final chunk, concatenate segments
+                if audio_chunks:
+                    audio_data = np.concatenate(audio_chunks)
+                else:
+                    raise ValueError("No audio generated")
+
+            # Convert to bytes
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_out:
+                sf.write(tmp_out.name, audio_data, self.sample_rate)
+                with open(tmp_out.name, "rb") as f:
+                    audio_bytes = f.read()
+                output_path = tmp_out.name
+
+            # Cleanup temp files
+            os.unlink(ref_audio_path)
+            os.unlink(output_path)
+
+            generation_time = time.time() - start_time
+            duration = len(audio_data) / self.sample_rate
+
+            print(f"Fish Audio voice clone generated in {generation_time:.2f}s, duration: {duration:.2f}s")
+
+            return {
+                "success": True,
+                "audio_bytes": audio_bytes,
+                "duration": duration,
+                "sample_rate": self.sample_rate,
+            }
+
+        except Exception as e:
+            import traceback
+            print(f"Fish Audio voice clone error: {e}")
             print(traceback.format_exc())
             return {
                 "success": False,

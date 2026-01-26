@@ -428,7 +428,7 @@ async def voice_clone(
     ref_text: str = Form(..., description="Transcription of the reference audio"),
     target_text: str = Form(..., description="Text to synthesize with cloned voice"),
     language: str = Form(default="Spanish", description="Target language"),
-    tts_model: str = Form(default="qwen", description="TTS model to use: qwen or higgs"),
+    tts_model: str = Form(default="qwen", description="TTS model to use: qwen, higgs, or fish"),
 ):
     """
     Clone a voice and synthesize new text.
@@ -438,7 +438,7 @@ async def voice_clone(
         ref_text: Transcription of the reference audio
         target_text: Text to synthesize with cloned voice
         language: Target language (Spanish, English, etc.)
-        tts_model: TTS model to use (qwen or higgs)
+        tts_model: TTS model to use (qwen, higgs, or fish)
 
     Returns:
         VoiceCloneResponse with audio_session_id for playback/download
@@ -531,6 +531,8 @@ async def voice_clone(
             # Select the appropriate model class
             if tts_model == "higgs":
                 TTSModel = modal.Cls.from_name(config.MODAL_APP_NAME, "HiggsAudioVoiceCloner")
+            elif tts_model == "fish":
+                TTSModel = modal.Cls.from_name(config.MODAL_APP_NAME, "FishAudioVoiceCloner")
             else:
                 TTSModel = modal.Cls.from_name(config.MODAL_APP_NAME, "Qwen3TTSVoiceCloner")
             model = TTSModel()
