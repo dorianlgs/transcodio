@@ -977,8 +977,6 @@ function updateModelHint() {
     const model = ttsModelSelect.value;
     if (model === 'higgs') {
         modelHint.textContent = 'Alta calidad y expresivo. Mejor para resultados profesionales.';
-    } else if (model === 'fish') {
-        modelHint.textContent = 'Mejor calidad. SOTA en clonación de voz multilingüe.';
     } else {
         modelHint.textContent = 'Rápido y buena calidad para la mayoría de casos.';
     }
