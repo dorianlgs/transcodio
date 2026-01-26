@@ -835,41 +835,39 @@ class HiggsAudioVoiceCloner:
         import tempfile
         import time
         import os
-        import torch
-        import torchaudio
+        import soundfile as sf
 
         try:
             start_time = time.time()
 
             from boson_multimodal.data_types import ChatMLSample, Message, AudioContent
 
-            # Save reference audio to temp file
+            # Save reference audio to temp file (Higgs expects file path in audio_url)
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_ref:
                 tmp_ref.write(ref_audio_bytes)
                 ref_audio_path = tmp_ref.name
 
             print(f"Generating voice clone for {len(target_text)} chars with Higgs Audio V2...")
 
-            # Build system prompt
+            # Build system prompt with speaker description
             system_prompt = (
                 "Generate audio following instruction.\n\n<|scene_desc_start|>\n"
                 "Audio is recorded from a quiet room.\n<|scene_desc_end|>"
             )
 
-            # Load reference audio for voice cloning
-            ref_audio_content = AudioContent(audio_path=ref_audio_path)
-
-            # Build messages with reference audio
+            # Build messages for voice cloning:
+            # 1. System prompt
+            # 2. User provides reference text (what was said in reference audio)
+            # 3. Assistant "responds" with reference audio (teaches the voice)
+            # 4. User provides target text (what to generate)
             messages = [
                 Message(role="system", content=system_prompt),
-                Message(
-                    role="user",
-                    content=[
-                        "Clone the voice from this audio: ",
-                        ref_audio_content,
-                        f"\n\nReference text: {ref_text}\n\nNow generate: {target_text}",
-                    ]
-                ),
+                # Reference text - what was said in the audio
+                Message(role="user", content=f"[SPEAKER0] {ref_text}"),
+                # Reference audio - the assistant's "voice" to clone
+                Message(role="assistant", content=AudioContent(audio_url=ref_audio_path)),
+                # Target text - what we want generated with the cloned voice
+                Message(role="user", content=f"[SPEAKER0] {target_text}"),
             ]
 
             # Generate audio
@@ -884,9 +882,9 @@ class HiggsAudioVoiceCloner:
             audio_array = output.audio
             sr = output.sampling_rate
 
-            # Convert to bytes
+            # Convert to bytes using soundfile
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_out:
-                torchaudio.save(tmp_out.name, torch.from_numpy(audio_array)[None, :], sr)
+                sf.write(tmp_out.name, audio_array, sr)
                 with open(tmp_out.name, "rb") as f:
                     audio_bytes = f.read()
                 output_path = tmp_out.name
