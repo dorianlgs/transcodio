@@ -120,6 +120,40 @@ higgs_tts_image = (
     )
 )
 
+# TTS image for NeuTTS Nano voice cloning
+neutts_image = (
+    modal.Image.from_registry(
+        "nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04", add_python="3.12"
+    )
+    .env({
+        "HF_HOME": "/models",
+        "DEBIAN_FRONTEND": "noninteractive",
+        "PYTHONPATH": "/opt/neutts",
+    })
+    .apt_install("ffmpeg", "libsndfile1", "espeak-ng", "git")
+    .run_commands(
+        # Clone NeuTTS repository
+        "git clone https://github.com/neuphonic/neutts.git /opt/neutts",
+    )
+    .pip_install(
+        # NeuTTS dependencies from requirements.txt
+        "torch>=2.0.0",
+        "torchaudio",
+        "transformers",
+        "huggingface_hub",
+        "librosa>=0.10.0",
+        "neucodec>=0.0.4",
+        "phonemizer>=3.3.0",
+        "resemble-perth>=1.0.1",
+        "soundfile>=0.12.1",
+        "pydub",  # For audio truncation
+    )
+    .add_local_file(
+        str(Path(__file__).parent.parent / "config.py"),
+        "/root/config.py"
+    )
+)
+
 # Create Modal app
 app = modal.App(config.MODAL_APP_NAME)
 
@@ -908,6 +942,133 @@ class HiggsAudioVoiceCloner:
         except Exception as e:
             import traceback
             print(f"Higgs voice clone error: {e}")
+            print(traceback.format_exc())
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+
+@app.cls(
+    image=neutts_image,
+    gpu=config.TTS_MODELS["neutts"]["gpu_type"],
+    scaledown_window=config.TTS_CONTAINER_IDLE_TIMEOUT,
+    timeout=300,
+    memory=config.TTS_MODELS["neutts"]["memory_mb"],
+    volumes={"/models": volume},
+)
+class NeuTTSVoiceCloner:
+    """NeuTTS Nano model for ultra-fast voice cloning."""
+
+    @modal.enter()
+    def load_model(self):
+        """Load NeuTTS Nano model once per container."""
+        import sys
+        import time
+
+        # Add neutts to path
+        sys.path.insert(0, "/opt/neutts")
+
+        start_time = time.time()
+        model_config = config.TTS_MODELS["neutts"]
+        print(f"Loading NeuTTS Nano model: {model_config['model_id']}...")
+
+        from neutts import NeuTTS
+
+        self.tts = NeuTTS(
+            backbone_repo=model_config["model_id"],
+            backbone_device="cuda",
+            codec_repo=model_config["codec_id"],
+        )
+
+        self.sample_rate = model_config["sample_rate"]
+
+        load_time = time.time() - start_time
+        print(f"NeuTTS Nano model loaded in {load_time:.2f}s")
+
+    @modal.method()
+    def generate_voice_clone(
+        self,
+        ref_audio_bytes: bytes,
+        ref_text: str,
+        target_text: str,
+        language: str
+    ) -> Dict[str, Any]:
+        """
+        Generate audio with cloned voice using NeuTTS Nano.
+
+        Args:
+            ref_audio_bytes: Reference audio bytes (WAV format)
+            ref_text: Transcription of the reference audio
+            target_text: Text to synthesize with cloned voice
+            language: Target language
+
+        Returns:
+            Dict with audio_bytes and metadata
+        """
+        import tempfile
+        import time
+        import os
+        import soundfile as sf
+        from pydub import AudioSegment
+
+        try:
+            start_time = time.time()
+
+            # Save reference audio to temp file
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_ref:
+                tmp_ref.write(ref_audio_bytes)
+                ref_audio_path = tmp_ref.name
+
+            # NeuTTS has a 2048 token limit, so we need to limit reference audio
+            # Truncate to max 12 seconds to leave room for text tokens
+            audio = AudioSegment.from_wav(ref_audio_path)
+            max_duration_ms = 12000  # 12 seconds max
+            if len(audio) > max_duration_ms:
+                print(f"Truncating reference audio from {len(audio)/1000:.1f}s to {max_duration_ms/1000}s")
+                audio = audio[:max_duration_ms]
+                audio.export(ref_audio_path, format="wav")
+
+            # Limit reference text to avoid token overflow
+            max_ref_text_chars = 200
+            if len(ref_text) > max_ref_text_chars:
+                ref_text = ref_text[:max_ref_text_chars]
+                print(f"Truncated reference text to {max_ref_text_chars} chars")
+
+            print(f"Generating voice clone for {len(target_text)} chars with NeuTTS Nano...")
+
+            # Encode reference audio
+            ref_codes = self.tts.encode_reference(ref_audio_path)
+
+            # Generate audio with cloned voice
+            audio_array = self.tts.infer(target_text, ref_codes, ref_text)
+
+            # Convert to bytes
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_out:
+                sf.write(tmp_out.name, audio_array, self.sample_rate)
+                with open(tmp_out.name, "rb") as f:
+                    audio_bytes = f.read()
+                output_path = tmp_out.name
+
+            # Cleanup temp files
+            os.unlink(ref_audio_path)
+            os.unlink(output_path)
+
+            generation_time = time.time() - start_time
+            duration = len(audio_array) / self.sample_rate
+
+            print(f"NeuTTS Nano voice clone generated in {generation_time:.2f}s, duration: {duration:.2f}s")
+
+            return {
+                "success": True,
+                "audio_bytes": audio_bytes,
+                "duration": duration,
+                "sample_rate": self.sample_rate,
+            }
+
+        except Exception as e:
+            import traceback
+            print(f"NeuTTS Nano voice clone error: {e}")
             print(traceback.format_exc())
             return {
                 "success": False,

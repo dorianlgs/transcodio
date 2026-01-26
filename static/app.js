@@ -977,6 +977,8 @@ function updateModelHint() {
     const model = ttsModelSelect.value;
     if (model === 'higgs') {
         modelHint.textContent = 'Alta calidad y expresivo. Mejor para resultados profesionales.';
+    } else if (model === 'neutts') {
+        modelHint.textContent = 'Ultra rápido y ligero. Ideal para pruebas y uso frecuente.';
     } else {
         modelHint.textContent = 'Rápido y buena calidad para la mayoría de casos.';
     }
