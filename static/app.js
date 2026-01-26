@@ -866,13 +866,13 @@ function handleRefFileDrop(event) {
 function loadRefAudioFile(file) {
     // Validate file type
     if (!file.type.startsWith('audio/')) {
-        showToast('Por favor sube un archivo de audio valido', 'error');
+        showToast('Por favor sube un archivo de audio válido', 'error');
         return;
     }
 
     // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
-        showToast('El archivo es demasiado grande. Maximo 10MB.', 'error');
+        showToast('El archivo es demasiado grande. Máximo 10MB.', 'error');
         return;
     }
 
@@ -946,7 +946,7 @@ async function startRecording() {
 
     } catch (error) {
         console.error('Recording error:', error);
-        showToast('No se pudo acceder al microfono', 'error');
+        showToast('No se pudo acceder al micrófono', 'error');
     }
 }
 
@@ -978,9 +978,9 @@ function updateModelHint() {
     if (model === 'higgs') {
         modelHint.textContent = 'Alta calidad y expresivo. Mejor para resultados profesionales.';
     } else if (model === 'fish') {
-        modelHint.textContent = 'Mejor calidad. SOTA en clonacion de voz multilingue.';
+        modelHint.textContent = 'Mejor calidad. SOTA en clonación de voz multilingüe.';
     } else {
-        modelHint.textContent = 'Rapido y buena calidad para la mayoria de casos.';
+        modelHint.textContent = 'Rápido y buena calidad para la mayoría de casos.';
     }
 }
 
@@ -1001,7 +1001,7 @@ async function generateVoiceClone() {
 
     const refText = refTextInput.value.trim();
     if (!refText) {
-        showToast('Por favor escribe la transcripcion del audio de referencia', 'error');
+        showToast('Por favor escribe la transcripción del audio de referencia', 'error');
         return;
     }
 
