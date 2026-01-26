@@ -128,24 +128,6 @@ TTS_MODELS = {
         "memory_mb": 8192,
         "description": "Fast, good quality (1.7B params)",
     },
-    "higgs": {
-        "name": "Higgs Audio V2",
-        "model_id": "bosonai/higgs-audio-v2-generation-3B-base",
-        "tokenizer_id": "bosonai/higgs-audio-v2-tokenizer",
-        "sample_rate": 24000,
-        "gpu_type": "L4",
-        "memory_mb": 24576,
-        "description": "High quality, expressive (3B params)",
-    },
-    "neutts": {
-        "name": "NeuTTS Nano",
-        "model_id": "neuphonic/neutts-nano",
-        "codec_id": "neuphonic/neucodec",
-        "sample_rate": 24000,
-        "gpu_type": "L4",
-        "memory_mb": 8192,
-        "description": "Ultra-fast, lightweight (120M params)",
-    },
 }
 
 # Default TTS model
