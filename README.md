@@ -69,7 +69,6 @@ This will:
 uv run uvicorn api.main:app --reload
 ```
 
-
 3. Open your browser to `http://localhost:8000`
 
 ## Usage
