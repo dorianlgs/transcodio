@@ -11,6 +11,7 @@ Key features:
 - **Real progressive streaming** with silence detection (yields segments as they complete)
 - **Speaker diarization** using NVIDIA TitaNet for automatic speaker identification
 - **Audio playback** with integrated player using session-based caching
+- **Image generation** using FLUX.1-schnell model for text-to-image
 - FastAPI web server with REST endpoints
 - Audio preprocessing and validation using FFmpeg
 - Support for multiple audio formats (MP3, WAV, M4A, FLAC, OGG, WebM)
@@ -47,6 +48,10 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
 - Uses Modal volumes to cache the model at `/models` to avoid redownloading
 - Container stays warm for `MODAL_CONTAINER_IDLE_TIMEOUT` seconds (default 120s) to reduce cold starts
 - **NoStdStreams** context manager suppresses NeMo's verbose logging
+- **Image generation**: `FluxImageGenerator` class using FLUX.1-schnell for text-to-image generation
+  - Uses diffusers library with bfloat16 precision
+  - Sequential CPU offload for lower memory usage
+  - Optimized for 4 inference steps (schnell mode)
 
 **api/main.py**:
 - FastAPI application with two transcription endpoints: `/api/transcribe` (non-streaming) and `/api/transcribe/stream` (SSE)
@@ -54,7 +59,11 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
   - Generates UUID session IDs for each transcription
   - Caches original uploaded audio files for 1 hour
   - Automatic cleanup of expired audio cache entries
-- Connects to Modal using `modal.Cls.from_name()` to lookup deployed models (`ParakeetSTTModel`, `SpeakerDiarizerModel`)
+- **Image generation endpoints**: `/api/generate-image` (POST) and `/api/image/{session_id}` (GET)
+  - `/api/generate-image`: Accepts prompt, width, height parameters; returns session ID
+  - `/api/image/{session_id}`: Retrieves generated image as PNG
+  - In-memory image cache with 1-hour expiry
+- Connects to Modal using `modal.Cls.from_name()` to lookup deployed models (`ParakeetSTTModel`, `SpeakerDiarizerModel`, `FluxImageGenerator`)
 - Audio validation happens before sending to Modal to save GPU costs
 - SSE streaming converts Modal's synchronous generator to async for FastAPI
 - **Speaker diarization integration**: Runs after transcription completes, yields `speakers_ready` event with annotated segments
@@ -82,6 +91,14 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
     - `ANTHROPIC_MODEL_ID = "claude-haiku-4-5-20251001"` (Claude Haiku 4.5)
     - `MINUTES_MAX_INPUT_TOKENS`, `MINUTES_MAX_OUTPUT_TOKENS`
     - `MINUTES_TEMPERATURE` (default: 0.3 for structured output)
+  - **Image generation settings** (FLUX.1-schnell):
+    - `ENABLE_IMAGE_GENERATION` (feature flag, default: True)
+    - `IMAGE_GENERATION_MODEL = "black-forest-labs/FLUX.1-schnell"`
+    - `IMAGE_GPU_TYPE`, `IMAGE_MEMORY_MB` (L4 GPU, 16GB memory)
+    - `IMAGE_DEFAULT_WIDTH`, `IMAGE_DEFAULT_HEIGHT` (768x768 default)
+    - `IMAGE_NUM_INFERENCE_STEPS` (4 steps, optimized for schnell)
+    - `IMAGE_GUIDANCE_SCALE` (0.0 for schnell mode)
+    - `IMAGE_CACHE_EXPIRY_HOURS` (1 hour cache)
 
 ## Common Commands
 
@@ -132,6 +149,9 @@ curl -X POST "http://localhost:8000/api/transcribe" -F "file=@audio.mp3"
 
 # Test streaming endpoint
 curl -X POST "http://localhost:8000/api/transcribe/stream" -F "file=@audio.mp3"
+
+# Test image generation endpoint
+curl -X POST "http://localhost:8000/api/generate-image" -F "prompt=a beautiful sunset over mountains" -F "width=768" -F "height=768"
 ```
 
 ## Critical Implementation Details
@@ -347,13 +367,73 @@ py -m modal secret create anthropic-api-key ANTHROPIC_API_KEY=sk-ant-...
 - **"model not found"**: Verify `ANTHROPIC_MODEL_ID` is correct
 - **Empty minutes**: Check Modal logs for API errors
 
+### Image Generation
+
+The service includes **AI-powered image generation** using Black Forest Labs' FLUX.1-schnell model. This feature generates images from text prompts with fast inference times.
+
+**How it works:**
+1. **User submits prompt**: Text description of desired image (max 500 characters)
+2. **Validation**: Prompt length and image dimensions are validated (512-1024px)
+3. **GPU processing**: FLUX.1-schnell generates image on Modal GPU (L4)
+4. **Caching**: Generated image is cached server-side with session ID
+5. **Retrieval**: Frontend fetches image using session ID
+6. **Display**: Image shown in dedicated tab with download option
+
+**Configuration** (in `config.py`):
+```python
+ENABLE_IMAGE_GENERATION = True  # Toggle feature on/off
+IMAGE_GENERATION_MODEL = "black-forest-labs/FLUX.1-schnell"
+IMAGE_GPU_TYPE = "L4"  # GPU type for generation
+IMAGE_MEMORY_MB = 16384  # 16GB memory allocation
+IMAGE_CONTAINER_IDLE_TIMEOUT = 120  # Keep container warm (seconds)
+IMAGE_MAX_PROMPT_LENGTH = 500  # Maximum prompt length
+IMAGE_DEFAULT_WIDTH = 768  # Default image width
+IMAGE_DEFAULT_HEIGHT = 768  # Default image height
+IMAGE_NUM_INFERENCE_STEPS = 4  # Schnell optimized for 4 steps
+IMAGE_GUIDANCE_SCALE = 0.0  # No classifier-free guidance for schnell
+IMAGE_CACHE_EXPIRY_HOURS = 1  # Image cache expiry
+```
+
+**Modal Secret Setup** (required):
+```bash
+# Create the HuggingFace token secret in Modal (for gated model access)
+py -m modal secret create hf-token HF_TOKEN=hf_...
+```
+
+**API endpoints:**
+- `POST /api/generate-image`: Generate image from prompt
+  - Parameters: `prompt` (required), `width` (512-1024), `height` (512-1024)
+  - Returns: `ImageGenerationResponse` with `image_session_id`
+- `GET /api/image/{session_id}`: Retrieve generated image as PNG
+
+**Key features:**
+- **Fast inference**: FLUX.1-schnell optimized for 4-step generation (~3-5 seconds)
+- **Memory efficient**: Sequential CPU offload reduces VRAM usage
+- **Flexible dimensions**: 512-1024px width/height (multiple of 8 recommended)
+- **Session-based**: Images cached for 1 hour, retrieved via session ID
+- **Graceful errors**: Clear error messages for invalid prompts or generation failures
+
+**Performance considerations:**
+- Cold start: ~30-60 seconds to download model and initialize
+- Warm container: ~3-5 seconds per image generation
+- Memory: Uses ~12-14GB VRAM with CPU offload enabled
+- Model size: ~12GB (cached in Modal volume at `/models`)
+
+**Troubleshooting:**
+- **"hf-token not found"**: Create the Modal secret with your HuggingFace token
+- **"Image generation service unavailable"**: Ensure Modal app is deployed
+- **Out of memory**: Reduce image dimensions or enable CPU offload (already enabled by default)
+- **Slow generation**: First request triggers cold start; subsequent requests faster
+
 ### Cost Optimization
 
-GPU costs are ~$0.006 per minute of audio. Optimization strategies:
+GPU costs are ~$0.006 per minute of audio for transcription, ~$0.01-0.02 per image generation. Optimization strategies:
 - **Parakeet TDT 0.6B** is much smaller than previous models (0.6B vs 2.6B params) = faster & cheaper
 - `MODAL_CONTAINER_IDLE_TIMEOUT` keeps containers warm to reduce cold starts (20-30s)
 - Audio preprocessing happens locally to minimize GPU time
 - **Memory snapshots** can be enabled for 85-90% faster cold starts (see `ENABLE_GPU_MEMORY_SNAPSHOT` in config.py)
+- **FLUX.1-schnell** uses only 4 inference steps (vs 20-50 for other models) = faster & cheaper
+- Image generation uses sequential CPU offload to reduce VRAM requirements
 
 ## Configuration Changes
 
@@ -397,6 +477,8 @@ Redeploy Modal: `py -m modal deploy modal_app/app.py`
 - **`scikit-learn>=1.3.0`**: Spectral clustering for speaker diarization
 - **`soundfile>=0.12.1`**: Audio file I/O for diarization
 - **`anthropic>=0.40.0`**: Anthropic Claude API for meeting minutes generation
+- **`diffusers>=0.30.0`**: HuggingFace diffusers for FLUX.1-schnell image generation
+- **`accelerate>=0.30.0`**: Model acceleration and memory optimization
 
 **Modal Container Image**:
 - Base: `nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04`
@@ -415,7 +497,7 @@ ENABLE_GPU_MEMORY_SNAPSHOT = True  # Experimental, 85-90% faster cold starts
 
 **Audio validation errors**: Check that FFmpeg is installed locally (`ffmpeg -version`). The API server needs FFmpeg to preprocess audio.
 
-**GPU out of memory**: Parakeet TDT 0.6B needs ~3-4GB VRAM (much less than previous models). L4 (24GB VRAM) is over-provisioned; T4 (16GB) would also work.
+**GPU out of memory**: Parakeet TDT 0.6B needs ~3-4GB VRAM (much less than previous models). FLUX.1-schnell needs ~12-14GB VRAM with CPU offload. L4 (24GB VRAM) handles both comfortably.
 
 **Too many/few segments in streaming**: Adjust silence detection parameters in `config.py`:
 - Too many segments: Increase `SILENCE_THRESHOLD_DB` and `SILENCE_MIN_LENGTH_MS`
@@ -442,6 +524,14 @@ ENABLE_GPU_MEMORY_SNAPSHOT = True  # Experimental, 85-90% faster cold starts
 - Check `ENABLE_MEETING_MINUTES = True` in `config.py`
 - Verify API key is valid and has credits
 - Check Modal logs for API errors: `py -m modal app logs transcodio-app`
+
+**Image generation not working**:
+- Ensure Modal secret exists: `py -m modal secret list` should show `hf-token`
+- Create the secret if missing: `py -m modal secret create hf-token HF_TOKEN=hf_...`
+- Check `ENABLE_IMAGE_GENERATION = True` in `config.py`
+- Verify HuggingFace token has access to FLUX.1-schnell (may require accepting model terms)
+- Check Modal logs for errors: `py -m modal app logs transcodio-app`
+- First request may timeout due to cold start - retry after a few minutes
 
 ## Model Comparison
 
