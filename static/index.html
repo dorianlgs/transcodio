@@ -42,6 +42,14 @@
                     </svg>
                     Clonar Voz
                 </button>
+                <button class="mode-btn" data-mode="image-gen" id="imageGenModeBtn">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <rect x="2" y="2" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.5"/>
+                        <circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M2 14L6 10L10 14L14 8L18 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Generar Imagen
+                </button>
             </div>
 
             <!-- Upload Section -->
@@ -331,6 +339,95 @@
                                 <path d="M8 8 L8 5 M8 8 L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                             </svg>
                             <span id="generatedDuration">--</span>
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Image Generation Section -->
+            <section class="image-gen-section hidden" id="imageGenSection">
+                <div class="image-gen-card">
+                    <h2>Generar Imagen</h2>
+                    <p class="image-gen-subtitle">Describe la imagen que deseas crear con texto</p>
+
+                    <!-- Prompt Input -->
+                    <div class="image-gen-form-group">
+                        <label class="form-label" for="imagePromptInput">Descripción de la imagen (max. 500 caracteres)</label>
+                        <textarea id="imagePromptInput" class="form-textarea" placeholder="Describe la imagen que quieres generar. Por ejemplo: Un paisaje futurista con rascacielos de cristal al atardecer..." rows="4" maxlength="500"></textarea>
+                        <div class="char-counter"><span id="imageCharCount">0</span> / 500</div>
+                    </div>
+
+                    <!-- Dimension Selectors -->
+                    <div class="image-gen-form-group">
+                        <label class="form-label">Dimensiones</label>
+                        <div class="dimension-selectors">
+                            <div class="dimension-group">
+                                <label for="imageWidthSelect">Ancho</label>
+                                <select id="imageWidthSelect" class="form-select">
+                                    <option value="512">512 px</option>
+                                    <option value="768" selected>768 px</option>
+                                    <option value="1024">1024 px</option>
+                                </select>
+                            </div>
+                            <span class="dimension-separator">x</span>
+                            <div class="dimension-group">
+                                <label for="imageHeightSelect">Alto</label>
+                                <select id="imageHeightSelect" class="form-select">
+                                    <option value="512">512 px</option>
+                                    <option value="768" selected>768 px</option>
+                                    <option value="1024">1024 px</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Generate Button -->
+                    <button class="btn btn-primary btn-generate" id="generateImageBtn">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <rect x="2" y="2" width="16" height="16" rx="2" stroke="currentColor" stroke-width="1.5"/>
+                            <circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.5"/>
+                            <path d="M2 14L6 10L10 14L14 8L18 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Generar Imagen
+                    </button>
+                </div>
+            </section>
+
+            <!-- Image Generation Processing Section -->
+            <section class="image-gen-processing hidden" id="imageGenProcessing">
+                <div class="processing-card">
+                    <div class="spinner"></div>
+                    <h3>Generando imagen...</h3>
+                    <p class="processing-status">Esto puede tardar unos segundos</p>
+                </div>
+            </section>
+
+            <!-- Image Generation Results Section -->
+            <section class="image-gen-results hidden" id="imageGenResults">
+                <div class="results-header">
+                    <h2>Imagen Generada</h2>
+                    <div class="results-actions">
+                        <button class="btn btn-secondary" id="downloadImageBtn">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                <path d="M9 3 L9 12 M5 9 L9 13 L13 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                <path d="M3 15 L15 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            Descargar PNG
+                        </button>
+                        <button class="btn btn-primary" id="newImageGenBtn">Nueva Imagen</button>
+                    </div>
+                </div>
+
+                <div class="image-result-card">
+                    <div class="image-preview-container">
+                        <img id="generatedImagePreview" alt="Imagen generada" />
+                    </div>
+                    <div class="image-result-info">
+                        <span class="metadata-item">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                            </svg>
+                            <span id="generatedImageDimensions">--</span>
                         </span>
                     </div>
                 </div>

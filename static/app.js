@@ -38,6 +38,7 @@ const minutesTabBtn = document.getElementById('minutesTabBtn');
 // Mode selector elements
 const transcriptionModeBtn = document.getElementById('transcriptionModeBtn');
 const voiceCloneModeBtn = document.getElementById('voiceCloneModeBtn');
+const imageGenModeBtn = document.getElementById('imageGenModeBtn');
 
 // Voice clone elements
 const voiceCloneSection = document.getElementById('voiceCloneSection');
@@ -70,6 +71,20 @@ const generatedDuration = document.getElementById('generatedDuration');
 const downloadVoiceBtn = document.getElementById('downloadVoiceBtn');
 const newVoiceCloneBtn = document.getElementById('newVoiceCloneBtn');
 
+// Image generation elements
+const imageGenSection = document.getElementById('imageGenSection');
+const imageGenProcessing = document.getElementById('imageGenProcessing');
+const imageGenResults = document.getElementById('imageGenResults');
+const imagePromptInput = document.getElementById('imagePromptInput');
+const imageCharCount = document.getElementById('imageCharCount');
+const imageWidthSelect = document.getElementById('imageWidthSelect');
+const imageHeightSelect = document.getElementById('imageHeightSelect');
+const generateImageBtn = document.getElementById('generateImageBtn');
+const generatedImagePreview = document.getElementById('generatedImagePreview');
+const generatedImageDimensions = document.getElementById('generatedImageDimensions');
+const downloadImageBtn = document.getElementById('downloadImageBtn');
+const newImageGenBtn = document.getElementById('newImageGenBtn');
+
 // State
 let currentTranscription = '';
 let currentFile = null;
@@ -85,6 +100,7 @@ let recordedChunks = [];
 let recordingStartTime = null;
 let recordingInterval = null;
 let generatedAudioSessionId = null;
+let generatedImageSessionId = null;
 
 // Initialize
 function init() {
@@ -130,6 +146,7 @@ function setupEventListeners() {
     // Mode switching
     transcriptionModeBtn.addEventListener('click', () => switchMode('transcription'));
     voiceCloneModeBtn.addEventListener('click', () => switchMode('voice-clone'));
+    imageGenModeBtn.addEventListener('click', () => switchMode('image-gen'));
 
     // Voice clone - Reference audio tabs
     refUploadTab.addEventListener('click', () => switchRefAudioTab('upload'));
@@ -159,6 +176,12 @@ function setupEventListeners() {
     // Voice clone - Results
     downloadVoiceBtn.addEventListener('click', downloadGeneratedVoice);
     newVoiceCloneBtn.addEventListener('click', resetVoiceClone);
+
+    // Image generation
+    imagePromptInput.addEventListener('input', updateImageCharCount);
+    generateImageBtn.addEventListener('click', generateImage);
+    downloadImageBtn.addEventListener('click', downloadGeneratedImage);
+    newImageGenBtn.addEventListener('click', resetImageGen);
 }
 
 // Tab switching function
@@ -819,22 +842,26 @@ function switchMode(mode) {
     // Update mode buttons
     transcriptionModeBtn.classList.toggle('active', mode === 'transcription');
     voiceCloneModeBtn.classList.toggle('active', mode === 'voice-clone');
+    imageGenModeBtn.classList.toggle('active', mode === 'image-gen');
+
+    // Hide all sections first
+    uploadSection.classList.add('hidden');
+    processingSection.classList.add('hidden');
+    resultsSection.classList.add('hidden');
+    voiceCloneSection.classList.add('hidden');
+    voiceCloneProcessing.classList.add('hidden');
+    voiceCloneResults.classList.add('hidden');
+    imageGenSection.classList.add('hidden');
+    imageGenProcessing.classList.add('hidden');
+    imageGenResults.classList.add('hidden');
 
     // Show/hide sections based on mode
     if (mode === 'transcription') {
         uploadSection.classList.remove('hidden');
-        processingSection.classList.add('hidden');
-        resultsSection.classList.add('hidden');
-        voiceCloneSection.classList.add('hidden');
-        voiceCloneProcessing.classList.add('hidden');
-        voiceCloneResults.classList.add('hidden');
-    } else {
-        uploadSection.classList.add('hidden');
-        processingSection.classList.add('hidden');
-        resultsSection.classList.add('hidden');
+    } else if (mode === 'voice-clone') {
         voiceCloneSection.classList.remove('hidden');
-        voiceCloneProcessing.classList.add('hidden');
-        voiceCloneResults.classList.add('hidden');
+    } else if (mode === 'image-gen') {
+        imageGenSection.classList.remove('hidden');
     }
 }
 
@@ -1106,6 +1133,112 @@ function resetVoiceClone() {
 
     // Switch to upload tab
     switchRefAudioTab('upload');
+}
+
+// ============================================
+// Image Generation Functions
+// ============================================
+
+// Character Counter for Image Prompt
+function updateImageCharCount() {
+    const count = imagePromptInput.value.length;
+    imageCharCount.textContent = count;
+}
+
+// Generate Image
+async function generateImage() {
+    const prompt = imagePromptInput.value.trim();
+
+    if (!prompt) {
+        showToast('Por favor escribe una descripción de la imagen', 'error');
+        return;
+    }
+
+    if (prompt.length > 500) {
+        showToast('La descripción no puede exceder 500 caracteres', 'error');
+        return;
+    }
+
+    const width = parseInt(imageWidthSelect.value);
+    const height = parseInt(imageHeightSelect.value);
+
+    // Show processing
+    imageGenSection.classList.add('hidden');
+    imageGenProcessing.classList.remove('hidden');
+
+    try {
+        const formData = new FormData();
+        formData.append('prompt', prompt);
+        formData.append('width', width);
+        formData.append('height', height);
+
+        const response = await fetch('/api/generate-image', {
+            method: 'POST',
+            body: formData,
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.detail || 'Error al generar la imagen');
+        }
+
+        if (!result.success) {
+            throw new Error(result.error || 'Error al generar la imagen');
+        }
+
+        // Show results
+        generatedImageSessionId = result.image_session_id;
+        generatedImagePreview.src = `/api/image/${result.image_session_id}`;
+        generatedImageDimensions.textContent = `${result.width} x ${result.height} px`;
+
+        imageGenProcessing.classList.add('hidden');
+        imageGenResults.classList.remove('hidden');
+
+        showToast('Imagen generada exitosamente!', 'success');
+
+    } catch (error) {
+        console.error('Image generation error:', error);
+        showToast(error.message, 'error');
+        imageGenProcessing.classList.add('hidden');
+        imageGenSection.classList.remove('hidden');
+    }
+}
+
+// Download Generated Image
+function downloadGeneratedImage() {
+    if (!generatedImageSessionId) {
+        showToast('No hay imagen para descargar', 'error');
+        return;
+    }
+
+    const a = document.createElement('a');
+    a.href = `/api/image/${generatedImageSessionId}`;
+    a.download = `generated-image-${Date.now()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast('Descargado!', 'success');
+}
+
+// Reset Image Generation
+function resetImageGen() {
+    // Clear prompt
+    imagePromptInput.value = '';
+    imageCharCount.textContent = '0';
+
+    // Reset dimensions to defaults
+    imageWidthSelect.value = '768';
+    imageHeightSelect.value = '768';
+
+    // Clear generated image
+    generatedImageSessionId = null;
+    generatedImagePreview.src = '';
+
+    // Show image gen section
+    imageGenResults.classList.add('hidden');
+    imageGenProcessing.classList.add('hidden');
+    imageGenSection.classList.remove('hidden');
 }
 
 // Initialize app

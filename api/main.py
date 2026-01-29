@@ -22,6 +22,7 @@ from api.models import (
     ErrorResponse,
     HealthResponse,
     VoiceCloneResponse,
+    ImageGenerationResponse,
 )
 from api.streaming import transcription_event_stream
 from utils.audio import validate_audio_file, AudioValidationError
@@ -29,12 +30,22 @@ from utils.audio import validate_audio_file, AudioValidationError
 # Simple in-memory cache for audio (session_id -> (audio_bytes, content_type, filename, expiry_time))
 audio_cache = {}
 
+# Simple in-memory cache for images (session_id -> (image_bytes, content_type, expiry_time))
+image_cache = {}
+
 def cleanup_expired_audio():
     """Remove expired audio from cache."""
     now = datetime.now()
     expired_keys = [k for k, v in audio_cache.items() if v[3] < now]
     for key in expired_keys:
         del audio_cache[key]
+
+def cleanup_expired_images():
+    """Remove expired images from cache."""
+    now = datetime.now()
+    expired_keys = [k for k, v in image_cache.items() if v[2] < now]
+    for key in expired_keys:
+        del image_cache[key]
 
 # Create FastAPI app
 app = FastAPI(
@@ -582,6 +593,149 @@ async def voice_clone(
             raise HTTPException(
                 status_code=500,
                 detail=f"Voice cloning failed: {str(e)}",
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error: {str(e)}",
+        )
+
+
+@app.get("/api/image/{session_id}")
+async def get_image(session_id: str):
+    """
+    Retrieve generated image by session ID.
+
+    Args:
+        session_id: Session ID returned in the image generation response
+
+    Returns:
+        Generated image as PNG
+
+    Raises:
+        HTTPException: If session ID is invalid or expired
+    """
+    # Clean up expired entries first
+    cleanup_expired_images()
+
+    if session_id not in image_cache:
+        raise HTTPException(
+            status_code=404,
+            detail="Image session not found or expired"
+        )
+
+    image_bytes, content_type, expiry = image_cache[session_id]
+
+    return Response(
+        content=image_bytes,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f"inline; filename=generated-image.png",
+        }
+    )
+
+
+@app.post("/api/generate-image", response_model=ImageGenerationResponse)
+async def generate_image(
+    prompt: str = Form(..., description="Text prompt describing the image to generate"),
+    width: int = Form(default=768, description="Image width (512-1024)"),
+    height: int = Form(default=768, description="Image height (512-1024)"),
+):
+    """
+    Generate an image from a text prompt using FLUX.1-schnell.
+
+    Args:
+        prompt: Text description of the image to generate
+        width: Image width in pixels (512-1024)
+        height: Image height in pixels (512-1024)
+
+    Returns:
+        ImageGenerationResponse with image_session_id for retrieval
+
+    Raises:
+        HTTPException: If validation fails or generation errors
+    """
+    # Check if image generation is enabled
+    if not config.ENABLE_IMAGE_GENERATION:
+        raise HTTPException(
+            status_code=503,
+            detail="Image generation is disabled"
+        )
+
+    try:
+        # Validate prompt
+        if not prompt or len(prompt.strip()) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Prompt cannot be empty"
+            )
+
+        if len(prompt) > config.IMAGE_MAX_PROMPT_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Prompt too long. Maximum {config.IMAGE_MAX_PROMPT_LENGTH} characters."
+            )
+
+        # Validate dimensions
+        width = max(512, min(1024, width))
+        height = max(512, min(1024, height))
+
+        # Import Modal and lookup function
+        try:
+            import modal
+
+            ImageGenerator = modal.Cls.from_name(config.MODAL_APP_NAME, "FluxImageGenerator")
+            generator = ImageGenerator()
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Image generation service unavailable: {str(e)}. Make sure the Modal app is deployed.",
+            )
+
+        # Generate image
+        try:
+            result = generator.generate_image.remote(
+                prompt=prompt.strip(),
+                width=width,
+                height=height,
+                num_inference_steps=config.IMAGE_NUM_INFERENCE_STEPS,
+                guidance_scale=config.IMAGE_GUIDANCE_SCALE,
+            )
+
+            if not result.get("success"):
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Image generation failed: {result.get('error', 'Unknown error')}"
+                )
+
+            # Generate session ID and cache the generated image
+            session_id = str(uuid.uuid4())
+            expiry_time = datetime.now() + timedelta(hours=config.IMAGE_CACHE_EXPIRY_HOURS)
+            image_cache[session_id] = (
+                result["image_bytes"],
+                "image/png",
+                expiry_time
+            )
+
+            # Clean up expired entries
+            cleanup_expired_images()
+
+            return ImageGenerationResponse(
+                success=True,
+                image_session_id=session_id,
+                width=result.get("width"),
+                height=result.get("height"),
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Image generation failed: {str(e)}",
             )
 
     except HTTPException:

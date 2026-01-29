@@ -144,6 +144,19 @@ VOICE_CLONE_LANGUAGES = [
     "German", "French", "Russian", "Portuguese", "Italian"
 ]
 
+# Image Generation Configuration (FLUX.1-schnell)
+ENABLE_IMAGE_GENERATION = True
+IMAGE_GENERATION_MODEL = "black-forest-labs/FLUX.1-schnell"
+IMAGE_GPU_TYPE = "L4"
+IMAGE_MEMORY_MB = 16384
+IMAGE_CONTAINER_IDLE_TIMEOUT = 120
+IMAGE_MAX_PROMPT_LENGTH = 500
+IMAGE_DEFAULT_WIDTH = 768
+IMAGE_DEFAULT_HEIGHT = 768
+IMAGE_NUM_INFERENCE_STEPS = 4  # Schnell optimized for 4 steps
+IMAGE_GUIDANCE_SCALE = 0.0
+IMAGE_CACHE_EXPIRY_HOURS = 1
+
 # Environment variables
 ENV_MODE = os.getenv("ENV", "development")
 DEBUG = ENV_MODE == "development"

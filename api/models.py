@@ -53,3 +53,13 @@ class VoiceCloneResponse(BaseModel):
     audio_session_id: Optional[str] = Field(None, description="Session ID to retrieve generated audio")
     duration: Optional[float] = Field(None, description="Generated audio duration in seconds")
     error: Optional[str] = Field(None, description="Error message if failed")
+
+
+class ImageGenerationResponse(BaseModel):
+    """Response model for image generation."""
+
+    success: bool = Field(..., description="Whether generation succeeded")
+    image_session_id: Optional[str] = Field(None, description="Session ID to retrieve generated image")
+    width: Optional[int] = Field(None, description="Generated image width in pixels")
+    height: Optional[int] = Field(None, description="Generated image height in pixels")
+    error: Optional[str] = Field(None, description="Error message if failed")

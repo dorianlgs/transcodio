@@ -53,6 +53,30 @@ anthropic_image = (
     )
 )
 
+# Image generation image for FLUX.1-schnell
+flux_image = (
+    modal.Image.from_registry(
+        "nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04", add_python="3.12"
+    )
+    .env({
+        "HF_HOME": "/models",
+        "DEBIAN_FRONTEND": "noninteractive",
+    })
+    .pip_install(
+        "torch",
+        "diffusers>=0.30.0",
+        "transformers>=4.40.0",
+        "accelerate>=0.30.0",
+        "sentencepiece",
+        "protobuf",
+        "huggingface-hub>=0.24.0",
+    )
+    .add_local_file(
+        str(Path(__file__).parent.parent / "config.py"),
+        "/root/config.py"
+    )
+)
+
 # TTS image for Qwen3-TTS voice cloning
 qwen_tts_image = (
     modal.Image.from_registry(
@@ -721,6 +745,119 @@ class Qwen3TTSVoiceCloner:
         except Exception as e:
             import traceback
             print(f"Voice clone error: {e}")
+            print(traceback.format_exc())
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+
+@app.cls(
+    image=flux_image,
+    gpu=config.IMAGE_GPU_TYPE,
+    scaledown_window=config.IMAGE_CONTAINER_IDLE_TIMEOUT,
+    timeout=600,  # 10 minutes max for image generation
+    memory=config.IMAGE_MEMORY_MB,
+    volumes={"/models": volume},
+    secrets=[modal.Secret.from_name("hf-token")],
+)
+class FluxImageGenerator:
+    """FLUX.1-schnell image generation model."""
+
+    @modal.enter()
+    def load_model(self):
+        """Load FLUX.1-schnell model once per container."""
+        import torch
+        from diffusers import FluxPipeline
+        from huggingface_hub import login
+        import time
+        import os
+
+        start_time = time.time()
+        print(f"Loading FLUX.1-schnell model: {config.IMAGE_GENERATION_MODEL}...")
+
+        # Authenticate with HuggingFace (required for gated models)
+        hf_token = os.environ.get("HF_TOKEN")
+        if hf_token:
+            login(token=hf_token)
+            print("Authenticated with HuggingFace")
+
+        self.pipe = FluxPipeline.from_pretrained(
+            config.IMAGE_GENERATION_MODEL,
+            torch_dtype=torch.bfloat16,
+        )
+        # Use sequential CPU offload for lower memory usage
+        self.pipe.enable_sequential_cpu_offload()
+
+        load_time = time.time() - start_time
+        print(f"FLUX.1-schnell model loaded in {load_time:.2f}s")
+
+    @modal.method()
+    def generate_image(
+        self,
+        prompt: str,
+        width: int = 1024,
+        height: int = 1024,
+        num_inference_steps: int = 4,
+        guidance_scale: float = 0.0,
+    ) -> Dict[str, Any]:
+        """
+        Generate an image from a text prompt.
+
+        Args:
+            prompt: Text description of the image to generate
+            width: Image width in pixels (512-1024)
+            height: Image height in pixels (512-1024)
+            num_inference_steps: Number of denoising steps (4 for schnell)
+            guidance_scale: Classifier-free guidance scale (0.0 for schnell)
+
+        Returns:
+            Dict with image_bytes (PNG) and metadata
+        """
+        import io
+        import time
+
+        try:
+            import torch
+            start_time = time.time()
+            print(f"Generating image: {prompt[:100]}...")
+
+            # Clear GPU cache before generation
+            torch.cuda.empty_cache()
+
+            # Validate dimensions
+            width = max(512, min(1024, width))
+            height = max(512, min(1024, height))
+
+            # Generate image (max_sequence_length=128 to save memory)
+            image = self.pipe(
+                prompt,
+                height=height,
+                width=width,
+                guidance_scale=guidance_scale,
+                num_inference_steps=num_inference_steps,
+                max_sequence_length=128,
+            ).images[0]
+
+            # Convert to PNG bytes
+            img_buffer = io.BytesIO()
+            image.save(img_buffer, format="PNG")
+            img_bytes = img_buffer.getvalue()
+
+            generation_time = time.time() - start_time
+            print(f"Image generated in {generation_time:.2f}s, size: {len(img_bytes)} bytes")
+
+            return {
+                "success": True,
+                "image_bytes": img_bytes,
+                "width": width,
+                "height": height,
+                "generation_time": generation_time,
+            }
+
+        except Exception as e:
+            import traceback
+            print(f"Image generation error: {e}")
             print(traceback.format_exc())
             return {
                 "success": False,
