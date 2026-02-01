@@ -114,7 +114,6 @@ flux_image = (
     .env({
         "HF_HOME": "/models",
         "DEBIAN_FRONTEND": "noninteractive",
-        "PYTHONPATH": "/root",
     })
     .pip_install(
         "torch",
@@ -124,10 +123,6 @@ flux_image = (
         "sentencepiece",
         "protobuf",
         "huggingface-hub>=0.24.0",
-    )
-    .add_local_file(
-        str(Path(__file__).parent.parent / "config.py"),
-        "/root/config.py"
     )
 )
 
