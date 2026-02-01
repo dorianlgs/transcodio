@@ -134,7 +134,6 @@ qwen_tts_image = (
     .env({
         "HF_HOME": "/models",
         "DEBIAN_FRONTEND": "noninteractive",
-        "PYTHONPATH": "/root",
     })
     .apt_install("ffmpeg", "libsndfile1")
     .pip_install(
@@ -143,46 +142,42 @@ qwen_tts_image = (
         "transformers",
         "soundfile>=0.12.1",
     )
-    .add_local_file(
-        str(Path(__file__).parent.parent / "config.py"),
-        "/root/config.py"
-    )
 )
 
 
 # Create Modal app
-app = modal.App(config.MODAL_APP_NAME)
+app = modal.App(MODAL_APP_NAME)
 
 # Create Modal Volume for persistent model storage
-volume = modal.Volume.from_name(config.MODAL_VOLUME_NAME, create_if_missing=True)
+volume = modal.Volume.from_name(MODAL_VOLUME_NAME, create_if_missing=True)
 
 # Build decorator arguments based on optimization flags
 decorator_kwargs = {
     "image": stt_image,
-    "gpu": config.MODAL_GPU_TYPE,
+    "gpu": MODAL_GPU_TYPE,
     "scaledown_window": (
-        config.EXTENDED_IDLE_TIMEOUT_SECONDS
-        if config.EXTENDED_IDLE_TIMEOUT
-        else config.MODAL_CONTAINER_IDLE_TIMEOUT
+        EXTENDED_IDLE_TIMEOUT_SECONDS
+        if EXTENDED_IDLE_TIMEOUT
+        else MODAL_CONTAINER_IDLE_TIMEOUT
     ),
-    "timeout": config.MODAL_TIMEOUT,
-    "memory": config.MODAL_MEMORY_MB,
+    "timeout": MODAL_TIMEOUT,
+    "memory": MODAL_MEMORY_MB,
     "volumes": {"/models": volume},
 }
 
 # Print configuration summary
-print(f"GPU Type: {config.MODAL_GPU_TYPE}")
-print(f"Memory: {config.MODAL_MEMORY_MB}MB")
+print(f"GPU Type: {MODAL_GPU_TYPE}")
+print(f"Memory: {MODAL_MEMORY_MB}MB")
 print(f"Container idle timeout: {decorator_kwargs['scaledown_window']}s")
 
 # Add CPU memory snapshot if enabled
-if config.ENABLE_CPU_MEMORY_SNAPSHOT:
+if ENABLE_CPU_MEMORY_SNAPSHOT:
     decorator_kwargs["enable_memory_snapshot"] = True
     print(f"CPU Memory Snapshots: ENABLED")
 
 # Add GPU memory snapshot if enabled (requires CPU snapshots)
-if config.ENABLE_GPU_MEMORY_SNAPSHOT:
-    if not config.ENABLE_CPU_MEMORY_SNAPSHOT:
+if ENABLE_GPU_MEMORY_SNAPSHOT:
+    if not ENABLE_CPU_MEMORY_SNAPSHOT:
         raise ValueError(
             "ENABLE_GPU_MEMORY_SNAPSHOT requires ENABLE_CPU_MEMORY_SNAPSHOT to be True"
         )
@@ -254,7 +249,7 @@ def align_speakers_to_segments(transcription_segments: list, speaker_timeline: l
 class ParakeetSTTModel:
     """NVIDIA Parakeet TDT model for streaming GPU-accelerated transcription."""
 
-    @modal.enter(snap=config.ENABLE_CPU_MEMORY_SNAPSHOT or config.ENABLE_GPU_MEMORY_SNAPSHOT)
+    @modal.enter(snap=ENABLE_CPU_MEMORY_SNAPSHOT or ENABLE_GPU_MEMORY_SNAPSHOT)
     def load_model(self):
         """Load Parakeet TDT model once per container (runs on container startup)."""
         import logging
@@ -266,27 +261,27 @@ class ParakeetSTTModel:
         # Suppress NeMo's verbose logging
         logging.getLogger("nemo_logger").setLevel(logging.CRITICAL)
 
-        print(f"Loading Parakeet TDT model: {config.STT_MODEL_ID}...")
+        print(f"Loading Parakeet TDT model: {STT_MODEL_ID}...")
 
         # NeMo uses HuggingFace Hub internally, respects HF_HOME env var
         self.model = nemo_asr.models.ASRModel.from_pretrained(
-            model_name=config.STT_MODEL_ID
+            model_name=STT_MODEL_ID
         )
 
         load_time = time.time() - start_time
         print(f"Model loaded successfully in {load_time:.2f}s")
 
         # Optional: Warm up model with dummy forward pass
-        if config.ENABLE_MODEL_WARMUP:
+        if ENABLE_MODEL_WARMUP:
             self._warmup_model()
 
         total_time = time.time() - start_time
         print(f"Total initialization time: {total_time:.2f}s")
 
         # Print optimization status
-        if config.ENABLE_CPU_MEMORY_SNAPSHOT:
+        if ENABLE_CPU_MEMORY_SNAPSHOT:
             print("-> This state will be captured in CPU memory snapshot")
-        if config.ENABLE_GPU_MEMORY_SNAPSHOT:
+        if ENABLE_GPU_MEMORY_SNAPSHOT:
             print("-> GPU state (including loaded model) will be captured in snapshot")
 
     def _warmup_model(self):
@@ -298,7 +293,7 @@ class ParakeetSTTModel:
         warmup_start = time.time()
 
         # Create 1 second of silence at 16kHz (Parakeet's native sample rate)
-        dummy_audio = np.zeros(config.SAMPLE_RATE, dtype=np.float32)
+        dummy_audio = np.zeros(SAMPLE_RATE, dtype=np.float32)
 
         # Run transcription to compile kernels (suppress output)
         with NoStdStreams():
@@ -322,7 +317,7 @@ class ParakeetSTTModel:
 
         # Convert bytes to numpy array (int16 → float32)
         audio_data = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
-        duration = len(audio_data) / config.SAMPLE_RATE
+        duration = len(audio_data) / SAMPLE_RATE
 
         print(f"Transcribing audio: {len(audio_data)} samples ({duration:.2f}s)")
 
@@ -364,7 +359,7 @@ class ParakeetSTTModel:
         try:
             # Calculate duration
             audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
-            duration = actual_duration if actual_duration > 0 else len(audio_array) / config.SAMPLE_RATE
+            duration = actual_duration if actual_duration > 0 else len(audio_array) / SAMPLE_RATE
 
             # Yield metadata first
             yield json.dumps({
@@ -378,14 +373,14 @@ class ParakeetSTTModel:
                 data=audio_bytes,
                 channels=1,
                 sample_width=2,  # 16-bit
-                frame_rate=config.SAMPLE_RATE,
+                frame_rate=SAMPLE_RATE,
             )
 
             # Detect silent windows
             silent_windows = silence.detect_silence(
                 audio_segment,
-                min_silence_len=config.SILENCE_MIN_LENGTH_MS,
-                silence_thresh=config.SILENCE_THRESHOLD_DB,
+                min_silence_len=SILENCE_MIN_LENGTH_MS,
+                silence_thresh=SILENCE_THRESHOLD_DB,
             )
 
             print(f"Detected {len(silent_windows)} silent windows")
@@ -498,7 +493,7 @@ class ParakeetSTTModel:
 class SpeakerDiarizerModel:
     """NVIDIA TitaNet + clustering for speaker diarization."""
 
-    @modal.enter(snap=config.ENABLE_CPU_MEMORY_SNAPSHOT or config.ENABLE_GPU_MEMORY_SNAPSHOT)
+    @modal.enter(snap=ENABLE_CPU_MEMORY_SNAPSHOT or ENABLE_GPU_MEMORY_SNAPSHOT)
     def load_model(self):
         """Load TitaNet speaker embedding model."""
         import logging
@@ -508,10 +503,10 @@ class SpeakerDiarizerModel:
         start_time = time.time()
         logging.getLogger("nemo_logger").setLevel(logging.CRITICAL)
 
-        print(f"Loading TitaNet model: {config.DIARIZATION_MODEL}...")
+        print(f"Loading TitaNet model: {DIARIZATION_MODEL}...")
 
         self.embedding_model = nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained(
-            model_name=config.DIARIZATION_MODEL
+            model_name=DIARIZATION_MODEL
         )
 
         load_time = time.time() - start_time
@@ -540,7 +535,7 @@ class SpeakerDiarizerModel:
 
             # Save to temporary WAV file (NeMo requires file input)
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                sf.write(tmp.name, audio_array, config.SAMPLE_RATE)
+                sf.write(tmp.name, audio_array, SAMPLE_RATE)
                 audio_path = tmp.name
 
             # Extract single-scale embeddings (fixes multi-scale artifact issue)
@@ -548,9 +543,9 @@ class SpeakerDiarizerModel:
             timestamps_list = []
 
             # Use only the first (longest) window length to avoid multi-scale artifacts
-            window_length = config.DIARIZATION_WINDOW_LENGTHS[0]
-            window_samples = int(window_length * config.SAMPLE_RATE)
-            shift_samples = int(config.DIARIZATION_SHIFT_LENGTH * config.SAMPLE_RATE)
+            window_length = DIARIZATION_WINDOW_LENGTHS[0]
+            window_samples = int(window_length * SAMPLE_RATE)
+            shift_samples = int(DIARIZATION_SHIFT_LENGTH * SAMPLE_RATE)
 
             num_windows = max(1, (len(audio_array) - window_samples) // shift_samples + 1)
 
@@ -566,7 +561,7 @@ class SpeakerDiarizerModel:
 
                 # Save window to temp file
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_win:
-                    sf.write(tmp_win.name, window_audio, config.SAMPLE_RATE)
+                    sf.write(tmp_win.name, window_audio, SAMPLE_RATE)
 
                     # Get embedding
                     with NoStdStreams():
@@ -574,8 +569,8 @@ class SpeakerDiarizerModel:
 
                     embeddings_list.append(embedding.cpu().numpy().flatten())
                     timestamps_list.append({
-                        "start": start_sample / config.SAMPLE_RATE,
-                        "end": end_sample / config.SAMPLE_RATE
+                        "start": start_sample / SAMPLE_RATE,
+                        "end": end_sample / SAMPLE_RATE
                     })
 
                     import os
@@ -593,8 +588,8 @@ class SpeakerDiarizerModel:
             from sklearn.cluster import AgglomerativeClustering
 
             # Try different numbers of speakers and pick the best
-            max_speakers_to_try = min(config.DIARIZATION_MAX_SPEAKERS, len(embeddings_matrix) // 5)
-            min_speakers_to_try = config.DIARIZATION_MIN_SPEAKERS
+            max_speakers_to_try = min(DIARIZATION_MAX_SPEAKERS, len(embeddings_matrix) // 5)
+            min_speakers_to_try = DIARIZATION_MIN_SPEAKERS
 
             best_score = -np.inf
             best_n_speakers = 1
@@ -710,7 +705,7 @@ class VoiceStorage:
 
     def _get_index_path(self) -> Path:
         """Get the index file path."""
-        return self._get_voices_dir() / config.VOICES_INDEX_FILE
+        return self._get_voices_dir() / VOICES_INDEX_FILE
 
     def _load_index(self) -> list:
         """Load the voices index."""
@@ -777,8 +772,8 @@ class VoiceStorage:
 
         # Check max voices limit
         index = self._load_index()
-        if len(index) >= config.MAX_SAVED_VOICES:
-            return {"success": False, "error": f"Maximum {config.MAX_SAVED_VOICES} voices reached"}
+        if len(index) >= MAX_SAVED_VOICES:
+            return {"success": False, "error": f"Maximum {MAX_SAVED_VOICES} voices reached"}
 
         # Check for duplicate name
         if any(v["name"].lower() == name.lower() for v in index):
@@ -844,10 +839,10 @@ class VoiceStorage:
 
 @app.cls(
     image=qwen_tts_image,
-    gpu=config.TTS_MODELS["qwen"]["gpu_type"],
-    scaledown_window=config.TTS_CONTAINER_IDLE_TIMEOUT,
+    gpu=TTS_MODELS["qwen"]["gpu_type"],
+    scaledown_window=TTS_CONTAINER_IDLE_TIMEOUT,
     timeout=300,
-    memory=config.TTS_MODELS["qwen"]["memory_mb"],
+    memory=TTS_MODELS["qwen"]["memory_mb"],
     volumes={"/models": volume},
 )
 class Qwen3TTSVoiceCloner:
@@ -859,7 +854,7 @@ class Qwen3TTSVoiceCloner:
         import torch
         import time
 
-        model_config = config.TTS_MODELS["qwen"]
+        model_config = TTS_MODELS["qwen"]
         start_time = time.time()
         print(f"Loading Qwen3-TTS model: {model_config['model_id']}...")
 
@@ -952,10 +947,10 @@ class Qwen3TTSVoiceCloner:
 
 @app.cls(
     image=flux_image,
-    gpu=config.IMAGE_GPU_TYPE,
-    scaledown_window=config.IMAGE_CONTAINER_IDLE_TIMEOUT,
+    gpu=IMAGE_GPU_TYPE,
+    scaledown_window=IMAGE_CONTAINER_IDLE_TIMEOUT,
     timeout=600,  # 10 minutes max for image generation
-    memory=config.IMAGE_MEMORY_MB,
+    memory=IMAGE_MEMORY_MB,
     volumes={"/models": volume},
     secrets=[modal.Secret.from_name("hf-token")],
 )
@@ -972,7 +967,7 @@ class FluxImageGenerator:
         import os
 
         start_time = time.time()
-        print(f"Loading FLUX.1-schnell model: {config.IMAGE_GENERATION_MODEL}...")
+        print(f"Loading FLUX.1-schnell model: {IMAGE_GENERATION_MODEL}...")
 
         # Authenticate with HuggingFace (required for gated models)
         hf_token = os.environ.get("HF_TOKEN")
@@ -981,7 +976,7 @@ class FluxImageGenerator:
             print("Authenticated with HuggingFace")
 
         self.pipe = FluxPipeline.from_pretrained(
-            config.IMAGE_GENERATION_MODEL,
+            IMAGE_GENERATION_MODEL,
             torch_dtype=torch.bfloat16,
         )
         # Use sequential CPU offload for lower memory usage
@@ -1066,7 +1061,7 @@ class FluxImageGenerator:
 @app.cls(
     image=anthropic_image,
     secrets=[modal.Secret.from_name("anthropic-api-key")],
-    scaledown_window=config.MINUTES_CONTAINER_IDLE_TIMEOUT,
+    scaledown_window=MINUTES_CONTAINER_IDLE_TIMEOUT,
     timeout=120,  # 2 minutes max for API call
 )
 class MeetingMinutesGenerator:
@@ -1081,7 +1076,7 @@ class MeetingMinutesGenerator:
         self.client = anthropic.Anthropic(
             api_key=os.environ["ANTHROPIC_API_KEY"]
         )
-        print(f"Anthropic client initialized for model: {config.ANTHROPIC_MODEL_ID}")
+        print(f"Anthropic client initialized for model: {ANTHROPIC_MODEL_ID}")
 
     @modal.method()
     def generate_minutes(self, transcription: str, speakers: list = None) -> Dict[str, Any]:
@@ -1133,15 +1128,15 @@ Si una sección no tiene elementos, usa un array vacío []. Siempre incluye los 
             user_prompt = f"""Genera una minuta de reunión a partir de esta transcripción:{speaker_context}
 
 TRANSCRIPCIÓN:
-{transcription[:config.MINUTES_MAX_INPUT_TOKENS * 4]}
+{transcription[:MINUTES_MAX_INPUT_TOKENS * 4]}
 
 Recuerda: Responde SOLO con JSON válido, sin ningún otro texto. El contenido debe estar en español. Las fechas deben ser calculadas basándose en la fecha de hoy."""
 
             # Call Claude Haiku 4.5 API
             message = self.client.messages.create(
-                model=config.ANTHROPIC_MODEL_ID,
-                max_tokens=config.MINUTES_MAX_OUTPUT_TOKENS,
-                temperature=config.MINUTES_TEMPERATURE,
+                model=ANTHROPIC_MODEL_ID,
+                max_tokens=MINUTES_MAX_OUTPUT_TOKENS,
+                temperature=MINUTES_TEMPERATURE,
                 system=system_prompt,
                 messages=[
                     {"role": "user", "content": user_prompt}
