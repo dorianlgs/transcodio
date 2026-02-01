@@ -71,6 +71,20 @@ const generatedDuration = document.getElementById('generatedDuration');
 const downloadVoiceBtn = document.getElementById('downloadVoiceBtn');
 const newVoiceCloneBtn = document.getElementById('newVoiceCloneBtn');
 
+// Saved voices elements
+const savedVoiceModeTab = document.getElementById('savedVoiceModeTab');
+const newVoiceModeTab = document.getElementById('newVoiceModeTab');
+const savedVoiceModeContent = document.getElementById('savedVoiceModeContent');
+const newVoiceModeContent = document.getElementById('newVoiceModeContent');
+const savedVoicesList = document.getElementById('savedVoicesList');
+const noVoicesMessage = document.getElementById('noVoicesMessage');
+const goToNewVoiceBtn = document.getElementById('goToNewVoiceBtn');
+const savedVoiceTargetText = document.getElementById('savedVoiceTargetText');
+const savedVoiceCharCount = document.getElementById('savedVoiceCharCount');
+const synthesizeBtn = document.getElementById('synthesizeBtn');
+const saveVoiceBtn = document.getElementById('saveVoiceBtn');
+const voiceNameInput = document.getElementById('voiceNameInput');
+
 // Image generation elements
 const imageGenSection = document.getElementById('imageGenSection');
 const imageGenProcessing = document.getElementById('imageGenProcessing');
@@ -102,9 +116,14 @@ let recordingInterval = null;
 let generatedAudioSessionId = null;
 let generatedImageSessionId = null;
 
+// Saved voices state
+let savedVoices = [];
+let selectedVoiceId = null;
+
 // Initialize
 function init() {
     setupEventListeners();
+    loadSavedVoices();
 }
 
 // Event Listeners
@@ -182,6 +201,14 @@ function setupEventListeners() {
     generateImageBtn.addEventListener('click', generateImage);
     downloadImageBtn.addEventListener('click', downloadGeneratedImage);
     newImageGenBtn.addEventListener('click', resetImageGen);
+
+    // Saved voices
+    savedVoiceModeTab.addEventListener('click', () => switchVoiceMode('saved'));
+    newVoiceModeTab.addEventListener('click', () => switchVoiceMode('new'));
+    goToNewVoiceBtn.addEventListener('click', () => switchVoiceMode('new'));
+    savedVoiceTargetText.addEventListener('input', updateSavedVoiceCharCount);
+    synthesizeBtn.addEventListener('click', synthesizeWithSavedVoice);
+    saveVoiceBtn.addEventListener('click', saveVoice);
 }
 
 // Tab switching function
@@ -1239,6 +1266,312 @@ function resetImageGen() {
     imageGenResults.classList.add('hidden');
     imageGenProcessing.classList.add('hidden');
     imageGenSection.classList.remove('hidden');
+}
+
+// ============================================
+// Saved Voices Functions
+// ============================================
+
+// Switch between saved and new voice modes
+function switchVoiceMode(mode) {
+    savedVoiceModeTab.classList.toggle('active', mode === 'saved');
+    newVoiceModeTab.classList.toggle('active', mode === 'new');
+    savedVoiceModeContent.classList.toggle('active', mode === 'saved');
+    newVoiceModeContent.classList.toggle('active', mode === 'new');
+
+    if (mode === 'saved') {
+        loadSavedVoices();
+    }
+}
+
+// Load saved voices from API
+async function loadSavedVoices() {
+    savedVoicesList.innerHTML = '<div class="loading-voices">Cargando voces...</div>';
+    noVoicesMessage.classList.add('hidden');
+
+    try {
+        const response = await fetch('/api/voices');
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.detail || 'Error al cargar voces');
+        }
+
+        savedVoices = data.voices || [];
+        renderSavedVoices();
+
+    } catch (error) {
+        console.error('Error loading voices:', error);
+        savedVoicesList.innerHTML = '<div class="error-message">Error al cargar voces</div>';
+    }
+}
+
+// Render saved voices list
+function renderSavedVoices() {
+    if (savedVoices.length === 0) {
+        savedVoicesList.innerHTML = '';
+        noVoicesMessage.classList.remove('hidden');
+        synthesizeBtn.disabled = true;
+        return;
+    }
+
+    noVoicesMessage.classList.add('hidden');
+    savedVoicesList.innerHTML = savedVoices.map(voice => `
+        <div class="saved-voice-item ${selectedVoiceId === voice.id ? 'selected' : ''}" data-voice-id="${voice.id}">
+            <div class="saved-voice-info">
+                <div class="saved-voice-name">${escapeHtml(voice.name)}</div>
+                <div class="saved-voice-meta">
+                    <span class="saved-voice-language">${voice.language}</span>
+                    <span class="saved-voice-date">${formatDate(voice.created_at)}</span>
+                </div>
+                <div class="saved-voice-ref-text">"${escapeHtml(truncateText(voice.ref_text, 60))}"</div>
+            </div>
+            <button class="btn-icon delete-voice-btn" title="Eliminar voz" data-voice-id="${voice.id}">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                    <path d="M3 5H15M6 5V4C6 3.45 6.45 3 7 3H11C11.55 3 12 3.45 12 4V5M7 8V13M11 8V13M4 5L5 15C5 15.55 5.45 16 6 16H12C12.55 16 13 15.55 13 15L14 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+        </div>
+    `).join('');
+
+    // Add click handlers
+    savedVoicesList.querySelectorAll('.saved-voice-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            if (!e.target.closest('.delete-voice-btn')) {
+                selectVoice(item.dataset.voiceId);
+            }
+        });
+    });
+
+    // Add delete handlers
+    savedVoicesList.querySelectorAll('.delete-voice-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteVoice(btn.dataset.voiceId);
+        });
+    });
+
+    updateSynthesizeButton();
+}
+
+// Select a voice
+function selectVoice(voiceId) {
+    selectedVoiceId = voiceId;
+
+    // Update UI
+    savedVoicesList.querySelectorAll('.saved-voice-item').forEach(item => {
+        item.classList.toggle('selected', item.dataset.voiceId === voiceId);
+    });
+
+    updateSynthesizeButton();
+}
+
+// Update synthesize button state
+function updateSynthesizeButton() {
+    const hasVoice = selectedVoiceId !== null;
+    const hasText = savedVoiceTargetText.value.trim().length > 0;
+    synthesizeBtn.disabled = !hasVoice || !hasText;
+}
+
+// Update character count for saved voice target text
+function updateSavedVoiceCharCount() {
+    const count = savedVoiceTargetText.value.length;
+    savedVoiceCharCount.textContent = count;
+    updateSynthesizeButton();
+}
+
+// Synthesize with saved voice
+async function synthesizeWithSavedVoice() {
+    if (!selectedVoiceId) {
+        showToast('Por favor selecciona una voz', 'error');
+        return;
+    }
+
+    const targetText = savedVoiceTargetText.value.trim();
+    if (!targetText) {
+        showToast('Por favor escribe el texto a sintetizar', 'error');
+        return;
+    }
+
+    if (targetText.length > 500) {
+        showToast('El texto no puede exceder 500 caracteres', 'error');
+        return;
+    }
+
+    // Show processing
+    voiceCloneSection.classList.add('hidden');
+    voiceCloneProcessing.classList.remove('hidden');
+
+    try {
+        const formData = new FormData();
+        formData.append('voice_id', selectedVoiceId);
+        formData.append('target_text', targetText);
+
+        const response = await fetch('/api/synthesize', {
+            method: 'POST',
+            body: formData,
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.detail || 'Error al sintetizar');
+        }
+
+        if (!result.success) {
+            throw new Error(result.error || 'Error al sintetizar');
+        }
+
+        // Show results
+        generatedAudioSessionId = result.audio_session_id;
+        generatedAudioPlayer.src = `/api/audio/${result.audio_session_id}`;
+        generatedDuration.textContent = formatDuration(result.duration || 0);
+
+        voiceCloneProcessing.classList.add('hidden');
+        voiceCloneResults.classList.remove('hidden');
+
+        showToast('Audio generado exitosamente!', 'success');
+
+    } catch (error) {
+        console.error('Synthesize error:', error);
+        showToast(error.message, 'error');
+        voiceCloneProcessing.classList.add('hidden');
+        voiceCloneSection.classList.remove('hidden');
+    }
+}
+
+// Save a new voice
+async function saveVoice() {
+    // Get voice name
+    const voiceName = voiceNameInput.value.trim();
+    if (!voiceName) {
+        showToast('Por favor ingresa un nombre para la voz', 'error');
+        return;
+    }
+
+    if (voiceName.length > 50) {
+        showToast('El nombre no puede exceder 50 caracteres', 'error');
+        return;
+    }
+
+    // Get reference audio
+    let audioToSend = null;
+    if (refAudioFile) {
+        audioToSend = refAudioFile;
+    } else if (refAudioBlob) {
+        audioToSend = new File([refAudioBlob], 'recording.webm', { type: 'audio/webm' });
+    }
+
+    if (!audioToSend) {
+        showToast('Por favor sube o graba un audio de referencia', 'error');
+        return;
+    }
+
+    // Get reference text
+    const refText = refTextInput.value.trim();
+    if (!refText) {
+        showToast('Por favor escribe la transcripción del audio de referencia', 'error');
+        return;
+    }
+
+    const language = languageSelect.value;
+
+    // Show processing
+    voiceCloneSection.classList.add('hidden');
+    voiceCloneProcessing.classList.remove('hidden');
+
+    try {
+        const formData = new FormData();
+        formData.append('name', voiceName);
+        formData.append('ref_audio', audioToSend);
+        formData.append('ref_text', refText);
+        formData.append('language', language);
+
+        const response = await fetch('/api/voices', {
+            method: 'POST',
+            body: formData,
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.detail || 'Error al guardar la voz');
+        }
+
+        if (!result.success) {
+            throw new Error(result.error || 'Error al guardar la voz');
+        }
+
+        showToast('Voz guardada exitosamente!', 'success');
+
+        // Clear the form
+        voiceNameInput.value = '';
+
+        // Switch to saved voices tab and reload
+        voiceCloneProcessing.classList.add('hidden');
+        voiceCloneSection.classList.remove('hidden');
+        switchVoiceMode('saved');
+
+    } catch (error) {
+        console.error('Save voice error:', error);
+        showToast(error.message, 'error');
+        voiceCloneProcessing.classList.add('hidden');
+        voiceCloneSection.classList.remove('hidden');
+    }
+}
+
+// Delete a voice
+async function deleteVoice(voiceId) {
+    if (!confirm('¿Estás seguro de eliminar esta voz?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/voices/${voiceId}`, {
+            method: 'DELETE',
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.detail || 'Error al eliminar la voz');
+        }
+
+        // Clear selection if deleted voice was selected
+        if (selectedVoiceId === voiceId) {
+            selectedVoiceId = null;
+        }
+
+        showToast('Voz eliminada', 'success');
+        loadSavedVoices();
+
+    } catch (error) {
+        console.error('Delete voice error:', error);
+        showToast(error.message, 'error');
+    }
+}
+
+// Helper: Escape HTML
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Helper: Truncate text
+function truncateText(text, maxLength) {
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+}
+
+// Helper: Format date
+function formatDate(isoString) {
+    const date = new Date(isoString);
+    return date.toLocaleDateString('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+    });
 }
 
 // Initialize app
