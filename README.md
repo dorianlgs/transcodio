@@ -58,6 +58,7 @@ py -m modal secret create anthropic-api-key ANTHROPIC_API_KEY=sk-ant-...
 py -m modal deploy modal_app/app.py
 ```
 
+
 This will:
 - Create a Modal app named `transcodio-app`
 - Set up NVIDIA L4 GPU instances for transcription and diarization
