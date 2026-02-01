@@ -27,6 +27,7 @@ stt_image = (
         "DEBIAN_FRONTEND": "noninteractive",
         "CXX": "g++",
         "CC": "g++",
+        "PYTHONPATH": "/root",  # Ensure config.py is found
     })
     .apt_install("ffmpeg")
     .uv_pip_install(
@@ -49,6 +50,7 @@ stt_image = (
 # Anthropic API image for meeting minutes generation (no GPU needed)
 anthropic_image = (
     modal.Image.debian_slim(python_version="3.12")
+    .env({"PYTHONPATH": "/root"})
     .pip_install("anthropic>=0.40.0")
     .add_local_file(
         str(Path(__file__).parent.parent / "config.py"),
@@ -64,6 +66,7 @@ flux_image = (
     .env({
         "HF_HOME": "/models",
         "DEBIAN_FRONTEND": "noninteractive",
+        "PYTHONPATH": "/root",
     })
     .pip_install(
         "torch",
@@ -88,6 +91,7 @@ qwen_tts_image = (
     .env({
         "HF_HOME": "/models",
         "DEBIAN_FRONTEND": "noninteractive",
+        "PYTHONPATH": "/root",
     })
     .apt_install("ffmpeg", "libsndfile1")
     .pip_install(
