@@ -203,8 +203,45 @@
             <section class="voice-clone-section hidden" id="voiceCloneSection">
                 <div class="voice-clone-card">
                     <h2>Clonar Voz</h2>
-                    <p class="voice-clone-subtitle">Sube un audio de referencia y genera nuevos textos con la misma voz</p>
+                    <p class="voice-clone-subtitle">Usa una voz guardada o crea una nueva</p>
 
+                    <!-- Voice Mode Tabs -->
+                    <div class="voice-mode-tabs">
+                        <button class="voice-mode-tab active" data-mode="saved" id="savedVoiceModeTab">Voces Guardadas</button>
+                        <button class="voice-mode-tab" data-mode="new" id="newVoiceModeTab">Nueva Voz</button>
+                    </div>
+
+                    <!-- Saved Voices Mode -->
+                    <div class="voice-mode-content active" id="savedVoiceModeContent">
+                        <div class="saved-voices-container">
+                            <label class="form-label">Selecciona una voz</label>
+                            <div class="saved-voices-list" id="savedVoicesList">
+                                <div class="loading-voices">Cargando voces...</div>
+                            </div>
+                            <div class="no-voices-message hidden" id="noVoicesMessage">
+                                <p>No hay voces guardadas.</p>
+                                <button class="btn btn-secondary" id="goToNewVoiceBtn">Crear Nueva Voz</button>
+                            </div>
+                        </div>
+
+                        <!-- Target Text for Saved Voice -->
+                        <div class="voice-clone-form-group" id="savedVoiceTargetGroup">
+                            <label class="form-label" for="savedVoiceTargetText">Texto a Sintetizar (max. 500 caracteres)</label>
+                            <textarea id="savedVoiceTargetText" class="form-textarea" placeholder="Escribe el texto que quieres generar con la voz seleccionada..." rows="4" maxlength="500"></textarea>
+                            <div class="char-counter"><span id="savedVoiceCharCount">0</span> / 500</div>
+                        </div>
+
+                        <!-- Generate Button for Saved Voice -->
+                        <button class="btn btn-primary btn-generate" id="synthesizeBtn" disabled>
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M10 2V18M6 4V16M14 4V16M2 7V13M18 7V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            Sintetizar
+                        </button>
+                    </div>
+
+                    <!-- New Voice Mode -->
+                    <div class="voice-mode-content" id="newVoiceModeContent">
                     <!-- Reference Audio -->
                     <div class="voice-clone-form-group">
                         <label class="form-label">Audio de Referencia (3-30 segundos)</label>
@@ -293,13 +330,30 @@
                         </select>
                     </div>
 
+                    <!-- Voice Name (for saving) -->
+                    <div class="voice-clone-form-group">
+                        <label class="form-label" for="voiceNameInput">Nombre de la Voz (para guardar)</label>
+                        <input type="text" id="voiceNameInput" class="form-input" placeholder="Ej: Mi voz, Voz de Juan..." maxlength="50">
+                    </div>
+
                     <!-- Generate Button -->
-                    <button class="btn btn-primary btn-generate" id="generateVoiceBtn">
-                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                            <path d="M10 2V18M6 4V16M14 4V16M2 7V13M18 7V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                        </svg>
-                        Generar Voz
-                    </button>
+                    <div class="voice-action-buttons">
+                        <button class="btn btn-primary btn-generate" id="generateVoiceBtn">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M10 2V18M6 4V16M14 4V16M2 7V13M18 7V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            Generar Voz
+                        </button>
+                        <button class="btn btn-secondary" id="saveVoiceBtn">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M15 3H5C4 3 3 4 3 5V15C3 16 4 17 5 17H15C16 17 17 16 17 15V5C17 4 16 3 15 3Z" stroke="currentColor" stroke-width="1.5"/>
+                                <path d="M7 3V7H13V3" stroke="currentColor" stroke-width="1.5"/>
+                                <path d="M10 10V14M8 12H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            Guardar Voz
+                        </button>
+                    </div>
+                    </div><!-- End New Voice Mode -->
                 </div>
             </section>
 

@@ -645,6 +645,154 @@ class SpeakerDiarizerModel:
 
 
 @app.cls(
+    image=modal.Image.debian_slim(python_version="3.12"),
+    volumes={"/models": volume},
+    scaledown_window=60,
+)
+class VoiceStorage:
+    """Manage saved voices in Modal Volume."""
+
+    def _get_voices_dir(self) -> Path:
+        """Get the voices directory path."""
+        voices_dir = Path("/models") / "voices"
+        voices_dir.mkdir(parents=True, exist_ok=True)
+        return voices_dir
+
+    def _get_index_path(self) -> Path:
+        """Get the index file path."""
+        return self._get_voices_dir() / config.VOICES_INDEX_FILE
+
+    def _load_index(self) -> list:
+        """Load the voices index."""
+        index_path = self._get_index_path()
+        if index_path.exists():
+            with open(index_path, "r") as f:
+                return json.load(f)
+        return []
+
+    def _save_index(self, index: list):
+        """Save the voices index."""
+        index_path = self._get_index_path()
+        with open(index_path, "w") as f:
+            json.dump(index, f, indent=2)
+        volume.commit()
+
+    @modal.method()
+    def list_voices(self) -> list:
+        """List all saved voices."""
+        return self._load_index()
+
+    @modal.method()
+    def get_voice(self, voice_id: str) -> Dict[str, Any]:
+        """Get a voice by ID including audio bytes."""
+        voices_dir = self._get_voices_dir()
+        voice_dir = voices_dir / voice_id
+
+        if not voice_dir.exists():
+            return {"success": False, "error": "Voice not found"}
+
+        # Load metadata
+        metadata_path = voice_dir / "metadata.json"
+        if not metadata_path.exists():
+            return {"success": False, "error": "Voice metadata not found"}
+
+        with open(metadata_path, "r") as f:
+            metadata = json.load(f)
+
+        # Load audio
+        audio_path = voice_dir / "ref_audio.wav"
+        if not audio_path.exists():
+            return {"success": False, "error": "Voice audio not found"}
+
+        with open(audio_path, "rb") as f:
+            audio_bytes = f.read()
+
+        return {
+            "success": True,
+            "metadata": metadata,
+            "audio_bytes": audio_bytes,
+        }
+
+    @modal.method()
+    def save_voice(
+        self,
+        voice_id: str,
+        name: str,
+        ref_audio_bytes: bytes,
+        ref_text: str,
+        language: str,
+    ) -> Dict[str, Any]:
+        """Save a new voice."""
+        from datetime import datetime
+
+        # Check max voices limit
+        index = self._load_index()
+        if len(index) >= config.MAX_SAVED_VOICES:
+            return {"success": False, "error": f"Maximum {config.MAX_SAVED_VOICES} voices reached"}
+
+        # Check for duplicate name
+        if any(v["name"].lower() == name.lower() for v in index):
+            return {"success": False, "error": f"Voice with name '{name}' already exists"}
+
+        # Create voice directory
+        voices_dir = self._get_voices_dir()
+        voice_dir = voices_dir / voice_id
+        voice_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save audio
+        audio_path = voice_dir / "ref_audio.wav"
+        with open(audio_path, "wb") as f:
+            f.write(ref_audio_bytes)
+
+        # Save metadata
+        metadata = {
+            "id": voice_id,
+            "name": name,
+            "ref_text": ref_text,
+            "language": language,
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        metadata_path = voice_dir / "metadata.json"
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        # Update index
+        index.append({
+            "id": voice_id,
+            "name": name,
+            "language": language,
+            "ref_text": ref_text,
+            "created_at": metadata["created_at"],
+        })
+        self._save_index(index)
+
+        print(f"Voice saved: {name} ({voice_id})")
+        return {"success": True, "voice_id": voice_id}
+
+    @modal.method()
+    def delete_voice(self, voice_id: str) -> Dict[str, Any]:
+        """Delete a voice."""
+        import shutil
+
+        voices_dir = self._get_voices_dir()
+        voice_dir = voices_dir / voice_id
+
+        if not voice_dir.exists():
+            return {"success": False, "error": "Voice not found"}
+
+        # Remove directory
+        shutil.rmtree(voice_dir)
+
+        # Update index
+        index = self._load_index()
+        index = [v for v in index if v["id"] != voice_id]
+        self._save_index(index)
+
+        print(f"Voice deleted: {voice_id}")
+        return {"success": True}
+
+
+@app.cls(
     image=qwen_tts_image,
     gpu=config.TTS_MODELS["qwen"]["gpu_type"],
     scaledown_window=config.TTS_CONTAINER_IDLE_TIMEOUT,

@@ -63,3 +63,36 @@ class ImageGenerationResponse(BaseModel):
     width: Optional[int] = Field(None, description="Generated image width in pixels")
     height: Optional[int] = Field(None, description="Generated image height in pixels")
     error: Optional[str] = Field(None, description="Error message if failed")
+
+
+class SavedVoice(BaseModel):
+    """A saved voice profile."""
+
+    id: str = Field(..., description="Unique voice ID")
+    name: str = Field(..., description="User-friendly name for the voice")
+    language: str = Field(..., description="Language of the voice")
+    ref_text: str = Field(..., description="Reference text transcription")
+    created_at: str = Field(..., description="ISO timestamp of creation")
+
+
+class SavedVoiceListResponse(BaseModel):
+    """Response model for listing saved voices."""
+
+    voices: List[SavedVoice] = Field(default_factory=list, description="List of saved voices")
+
+
+class SaveVoiceResponse(BaseModel):
+    """Response model for saving a voice."""
+
+    success: bool = Field(..., description="Whether save succeeded")
+    voice_id: Optional[str] = Field(None, description="ID of the saved voice")
+    error: Optional[str] = Field(None, description="Error message if failed")
+
+
+class SynthesizeResponse(BaseModel):
+    """Response model for synthesizing with a saved voice."""
+
+    success: bool = Field(..., description="Whether synthesis succeeded")
+    audio_session_id: Optional[str] = Field(None, description="Session ID to retrieve generated audio")
+    duration: Optional[float] = Field(None, description="Generated audio duration in seconds")
+    error: Optional[str] = Field(None, description="Error message if failed")

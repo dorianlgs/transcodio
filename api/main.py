@@ -23,6 +23,9 @@ from api.models import (
     HealthResponse,
     VoiceCloneResponse,
     ImageGenerationResponse,
+    SavedVoiceListResponse,
+    SaveVoiceResponse,
+    SynthesizeResponse,
 )
 from api.streaming import transcription_event_stream
 from utils.audio import validate_audio_file, AudioValidationError
@@ -602,6 +605,241 @@ async def voice_clone(
             status_code=500,
             detail=f"Unexpected error: {str(e)}",
         )
+
+
+@app.get("/api/voices", response_model=SavedVoiceListResponse)
+async def list_voices():
+    """
+    List all saved voices.
+
+    Returns:
+        SavedVoiceListResponse with list of saved voices
+    """
+    if not config.ENABLE_VOICE_CLONING:
+        raise HTTPException(status_code=503, detail="Voice cloning is disabled")
+
+    try:
+        import modal
+
+        VoiceStorage = modal.Cls.from_name(config.MODAL_APP_NAME, "VoiceStorage")
+        storage = VoiceStorage()
+        voices = storage.list_voices.remote()
+        return SavedVoiceListResponse(voices=voices)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Voice storage service unavailable: {str(e)}"
+        )
+
+
+@app.post("/api/voices", response_model=SaveVoiceResponse)
+async def save_voice(
+    name: str = Form(..., description="Name for the voice"),
+    ref_audio: UploadFile = File(..., description="Reference audio file (3-60 seconds)"),
+    ref_text: str = Form(..., description="Transcription of the reference audio"),
+    language: str = Form(default="Spanish", description="Voice language"),
+):
+    """
+    Save a new voice for later use.
+
+    Args:
+        name: User-friendly name for the voice
+        ref_audio: Reference audio file (3-60 seconds)
+        ref_text: Exact transcription of the reference audio
+        language: Language of the voice
+
+    Returns:
+        SaveVoiceResponse with voice_id
+    """
+    if not config.ENABLE_VOICE_CLONING:
+        raise HTTPException(status_code=503, detail="Voice cloning is disabled")
+
+    # Validate name
+    if not name or len(name.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Voice name cannot be empty")
+    if len(name) > 50:
+        raise HTTPException(status_code=400, detail="Voice name too long (max 50 characters)")
+
+    # Validate language
+    if language not in config.VOICE_CLONE_LANGUAGES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported language. Supported: {', '.join(config.VOICE_CLONE_LANGUAGES)}"
+        )
+
+    # Validate ref_text
+    if not ref_text or len(ref_text.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Reference text cannot be empty")
+
+    try:
+        # Read and validate audio
+        ref_audio_bytes = await ref_audio.read()
+        file_size = len(ref_audio_bytes)
+
+        if file_size > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Reference audio too large (max 10MB)")
+
+        # Preprocess audio
+        try:
+            ref_duration, preprocessed_ref = validate_audio_file(
+                filename=ref_audio.filename,
+                file_size=file_size,
+                audio_bytes=ref_audio_bytes,
+                content_type=ref_audio.content_type,
+                target_sample_rate=config.VOICE_CLONE_SAMPLE_RATE,
+            )
+        except AudioValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Validate duration
+        if ref_duration < config.VOICE_CLONE_MIN_REF_DURATION:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Reference audio too short (min {config.VOICE_CLONE_MIN_REF_DURATION}s)"
+            )
+        if ref_duration > config.VOICE_CLONE_MAX_REF_DURATION:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Reference audio too long (max {config.VOICE_CLONE_MAX_REF_DURATION}s)"
+            )
+
+        # Save voice
+        import modal
+
+        VoiceStorage = modal.Cls.from_name(config.MODAL_APP_NAME, "VoiceStorage")
+        storage = VoiceStorage()
+
+        voice_id = str(uuid.uuid4())
+        result = storage.save_voice.remote(
+            voice_id=voice_id,
+            name=name.strip(),
+            ref_audio_bytes=preprocessed_ref,
+            ref_text=ref_text.strip(),
+            language=language,
+        )
+
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Failed to save voice"))
+
+        return SaveVoiceResponse(success=True, voice_id=voice_id)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
+@app.delete("/api/voices/{voice_id}")
+async def delete_voice(voice_id: str):
+    """
+    Delete a saved voice.
+
+    Args:
+        voice_id: ID of the voice to delete
+
+    Returns:
+        Success status
+    """
+    if not config.ENABLE_VOICE_CLONING:
+        raise HTTPException(status_code=503, detail="Voice cloning is disabled")
+
+    try:
+        import modal
+
+        VoiceStorage = modal.Cls.from_name(config.MODAL_APP_NAME, "VoiceStorage")
+        storage = VoiceStorage()
+        result = storage.delete_voice.remote(voice_id)
+
+        if not result.get("success"):
+            raise HTTPException(status_code=404, detail=result.get("error", "Voice not found"))
+
+        return {"success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
+@app.post("/api/synthesize", response_model=SynthesizeResponse)
+async def synthesize_with_voice(
+    voice_id: str = Form(..., description="ID of the saved voice to use"),
+    target_text: str = Form(..., description="Text to synthesize"),
+):
+    """
+    Synthesize text using a saved voice.
+
+    Args:
+        voice_id: ID of the saved voice
+        target_text: Text to synthesize (max 500 characters)
+
+    Returns:
+        SynthesizeResponse with audio_session_id for playback/download
+    """
+    if not config.ENABLE_VOICE_CLONING:
+        raise HTTPException(status_code=503, detail="Voice cloning is disabled")
+
+    # Validate target text
+    if not target_text or len(target_text.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Target text cannot be empty")
+    if len(target_text) > config.VOICE_CLONE_MAX_TARGET_TEXT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Target text too long (max {config.VOICE_CLONE_MAX_TARGET_TEXT} characters)"
+        )
+
+    try:
+        import modal
+
+        # Get saved voice
+        VoiceStorage = modal.Cls.from_name(config.MODAL_APP_NAME, "VoiceStorage")
+        storage = VoiceStorage()
+        voice_data = storage.get_voice.remote(voice_id)
+
+        if not voice_data.get("success"):
+            raise HTTPException(status_code=404, detail=voice_data.get("error", "Voice not found"))
+
+        metadata = voice_data["metadata"]
+        ref_audio_bytes = voice_data["audio_bytes"]
+
+        # Generate audio with TTS
+        TTSModel = modal.Cls.from_name(config.MODAL_APP_NAME, "Qwen3TTSVoiceCloner")
+        model = TTSModel()
+
+        result = model.generate_voice_clone.remote(
+            ref_audio_bytes,
+            metadata["ref_text"],
+            target_text.strip(),
+            metadata["language"],
+        )
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Synthesis failed: {result.get('error', 'Unknown error')}"
+            )
+
+        # Cache generated audio
+        session_id = str(uuid.uuid4())
+        expiry_time = datetime.now() + timedelta(hours=1)
+        audio_cache[session_id] = (
+            result["audio_bytes"],
+            "audio/wav",
+            "synthesized.wav",
+            expiry_time,
+        )
+        cleanup_expired_audio()
+
+        return SynthesizeResponse(
+            success=True,
+            audio_session_id=session_id,
+            duration=result.get("duration"),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
 @app.get("/api/image/{session_id}")

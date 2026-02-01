@@ -144,6 +144,11 @@ VOICE_CLONE_LANGUAGES = [
     "German", "French", "Russian", "Portuguese", "Italian"
 ]
 
+# Saved Voices Configuration
+VOICES_STORAGE_PATH = "/voices"  # Path within Modal Volume
+VOICES_INDEX_FILE = "index.json"
+MAX_SAVED_VOICES = 50  # Maximum number of saved voices
+
 # Image Generation Configuration (FLUX.1-schnell)
 ENABLE_IMAGE_GENERATION = True
 IMAGE_GENERATION_MODEL = "black-forest-labs/FLUX.1-schnell"
