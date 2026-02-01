@@ -10,7 +10,10 @@ from pathlib import Path
 import modal
 
 # Add parent directory to path for config import
+# Works locally: modal_app/app.py -> transcodio/
+# Works in Modal container: /root/app.py -> config.py is at /root/
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))  # For Modal container where config.py is alongside app.py
 import config
 
 # Create the container image with all required dependencies
