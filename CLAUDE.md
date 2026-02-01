@@ -41,6 +41,7 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
 - Uses **NVIDIA NeMo framework** for ASR (Automatic Speech Recognition)
 - Two main methods: `transcribe()` for complete results, `transcribe_stream()` for progressive streaming
 - **Real streaming**: Detects silence boundaries using pydub, transcribes segments progressively
+- **Embedded configuration**: All Modal-specific settings are embedded directly at the top of the file (not imported from config.py) to avoid import issues in Modal containers
 - **Speaker diarization**: `SpeakerDiarizerModel` class using NVIDIA TitaNet for speaker embeddings
   - Single-scale embedding extraction (1.5s windows by default, prevents multi-scale artifacts)
   - Automatic speaker count detection using combined score with complexity penalty
@@ -76,7 +77,8 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
 - All validation happens locally before sending to Modal GPU
 
 **config.py**:
-- Centralized configuration for GPU settings, file limits, and API settings
+- Configuration for the **API layer** (FastAPI server) - file limits, API settings, feature flags
+- **Note**: Modal-specific settings are duplicated/embedded in `modal_app/app.py` to avoid import issues in Modal containers. When changing Modal settings, update both files.
 - Key settings:
   - `STT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"` (HuggingFace model ID)
   - `SAMPLE_RATE = 16000` (Parakeet's native sample rate)
@@ -208,6 +210,7 @@ The streaming endpoint uses **real progressive streaming** with silence detectio
 - **Now (Parakeet)**: Detects natural pauses, yields segments progressively as they complete (**real streaming**)
 
 **Recent Improvements**:
+- **Embedded Modal configuration**: All Modal-specific settings are now embedded directly in `modal_app/app.py` instead of importing from `config.py`, avoiding import issues in Modal containers
 - **Full transcription in completion**: The final `complete` event now includes the complete transcription text assembled from all segments, making it easier to retrieve the entire result
 - **Segment accumulation**: All segment texts are accumulated during streaming and returned together in the completion event
 - **UI enhancements**: Copy button relocated inside the full text container for better user experience and more intuitive access
@@ -235,7 +238,7 @@ This architecture ensures:
 
 ### Silence Detection Tuning
 
-Adjust these parameters in `config.py` to control segmentation granularity:
+Adjust these parameters in `modal_app/app.py` (embedded config at top of file) to control segmentation granularity:
 
 ```python
 SILENCE_THRESHOLD_DB = -40   # Lower = more sensitive (detects softer pauses)
@@ -268,7 +271,7 @@ The service includes **automatic speaker identification** that runs after transc
 6. **Frontend display**: Segments show speaker badges (e.g., "Speaker 1", "Speaker 2")
 7. **Subtitle export**: Speaker labels are included in SRT/VTT downloads
 
-**Configuration** (in `config.py`):
+**Configuration** (in `modal_app/app.py` - embedded config at top of file):
 ```python
 ENABLE_SPEAKER_DIARIZATION = True  # Toggle feature on/off
 DIARIZATION_MODEL = "nvidia/speakerverification_en_titanet_large"
@@ -292,14 +295,14 @@ DIARIZATION_SHIFT_LENGTH = 0.75  # Window shift/overlap (seconds)
 - If diarization fails, transcription still completes successfully (graceful degradation)
 
 **Tuning tips:**
-- **More speakers**: Increase `DIARIZATION_MAX_SPEAKERS` (trades speed for accuracy)
+- **More speakers**: Increase `DIARIZATION_MAX_SPEAKERS` in `modal_app/app.py` (trades speed for accuracy)
 - **Longer windows**: Change `DIARIZATION_WINDOW_LENGTHS[0]` to `2.0` for better speaker characterization
 - **Shorter windows**: Change to `1.0` for faster processing but less accurate speaker identification
 - **More overlap**: Decrease `DIARIZATION_SHIFT_LENGTH` to `0.5` for smoother speaker transitions
-- **Adjust complexity penalty**: Edit line 519 in `modal_app/app.py` (higher = prefers fewer speakers)
-- **Disable entirely**: Set `ENABLE_SPEAKER_DIARIZATION = False` to skip diarization
+- **Adjust complexity penalty**: Edit line ~621 in `modal_app/app.py` (higher = prefers fewer speakers)
+- **Disable entirely**: Set `ENABLE_SPEAKER_DIARIZATION = False` in `config.py` to skip diarization
 
-After changing these values, redeploy: `py -m modal deploy modal_app/app.py`
+After changing Modal settings, redeploy: `py -m modal deploy modal_app/app.py`
 
 ### Audio Player
 
@@ -333,13 +336,18 @@ The service includes **AI-powered meeting minutes generation** using Anthropic's
 5. **Frontend display**: Minutes tab shows organized meeting information
 6. **Download**: Export minutes as formatted TXT file
 
-**Configuration** (in `config.py`):
+**Configuration** (in `modal_app/app.py` - embedded config at top of file):
 ```python
-ENABLE_MEETING_MINUTES = True  # Toggle feature on/off
 ANTHROPIC_MODEL_ID = "claude-haiku-4-5-20251001"  # Claude Haiku 4.5
 MINUTES_MAX_INPUT_TOKENS = 8000  # Max transcription length
 MINUTES_MAX_OUTPUT_TOKENS = 2048  # Max response length
 MINUTES_TEMPERATURE = 0.3  # Low for consistent structured output
+MINUTES_CONTAINER_IDLE_TIMEOUT = 60  # Container warm timeout
+```
+
+**Feature flag** (in `config.py` - API layer):
+```python
+ENABLE_MEETING_MINUTES = True  # Toggle feature on/off
 ```
 
 **Modal Secret Setup** (required):
@@ -385,18 +393,20 @@ The service includes **AI-powered image generation** using Black Forest Labs' FL
 5. **Retrieval**: Frontend fetches image using session ID
 6. **Display**: Image shown in dedicated tab with download option
 
-**Configuration** (in `config.py`):
+**Configuration** (in `modal_app/app.py` - embedded config at top of file):
 ```python
-ENABLE_IMAGE_GENERATION = True  # Toggle feature on/off
 IMAGE_GENERATION_MODEL = "black-forest-labs/FLUX.1-schnell"
 IMAGE_GPU_TYPE = "L4"  # GPU type for generation
 IMAGE_MEMORY_MB = 16384  # 16GB memory allocation
 IMAGE_CONTAINER_IDLE_TIMEOUT = 120  # Keep container warm (seconds)
+```
+
+**Feature flag and API settings** (in `config.py` - API layer):
+```python
+ENABLE_IMAGE_GENERATION = True  # Toggle feature on/off
 IMAGE_MAX_PROMPT_LENGTH = 500  # Maximum prompt length
 IMAGE_DEFAULT_WIDTH = 768  # Default image width
 IMAGE_DEFAULT_HEIGHT = 768  # Default image height
-IMAGE_NUM_INFERENCE_STEPS = 4  # Schnell optimized for 4 steps
-IMAGE_GUIDANCE_SCALE = 0.0  # No classifier-free guidance for schnell
 IMAGE_CACHE_EXPIRY_HOURS = 1  # Image cache expiry
 ```
 
@@ -463,11 +473,11 @@ The service supports **persistent voice storage** for voice cloning. Users can s
   - Parameters: `voice_id`, `target_text`
   - Returns: `SynthesizeResponse` with `audio_session_id`
 
-**Configuration** (in `config.py`):
+**Configuration** (in `modal_app/app.py` - embedded config at top of file):
 ```python
-VOICES_STORAGE_PATH = "/voices"  # Path within Modal Volume
 VOICES_INDEX_FILE = "index.json"
 MAX_SAVED_VOICES = 50  # Maximum number of saved voices
+TTS_CONTAINER_IDLE_TIMEOUT = 120  # Container warm timeout
 ```
 
 **Key features:**
@@ -493,15 +503,17 @@ GPU costs are ~$0.006 per minute of audio for transcription, ~$0.01-0.02 per ima
 - **Parakeet TDT 0.6B** is much smaller than previous models (0.6B vs 2.6B params) = faster & cheaper
 - `MODAL_CONTAINER_IDLE_TIMEOUT` keeps containers warm to reduce cold starts (20-30s)
 - Audio preprocessing happens locally to minimize GPU time
-- **Memory snapshots** can be enabled for 85-90% faster cold starts (see `ENABLE_GPU_MEMORY_SNAPSHOT` in config.py)
+- **Memory snapshots** are enabled by default for 85-90% faster cold starts (see `ENABLE_GPU_MEMORY_SNAPSHOT` in `modal_app/app.py`)
 - **FLUX.1-schnell** uses only 4 inference steps (vs 20-50 for other models) = faster & cheaper
 - Image generation uses sequential CPU offload to reduce VRAM requirements
 
 ## Configuration Changes
 
+**Important**: Modal-specific settings are embedded directly in `modal_app/app.py` (not imported from config.py) to avoid import issues in Modal containers. When changing Modal settings, edit the constants at the top of `modal_app/app.py`.
+
 ### Changing the STT Model or GPU Type
 
-Edit `config.py`:
+Edit **`modal_app/app.py`** (top of file):
 ```python
 STT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"  # Or another NeMo-compatible model
 MODAL_GPU_TYPE = "L4"    # Options: L4, A10G, T4
@@ -512,7 +524,7 @@ Then redeploy Modal: `py -m modal deploy modal_app/app.py`
 
 ### Adjusting Silence Detection
 
-Edit `config.py`:
+Edit **`modal_app/app.py`** (top of file):
 ```python
 SILENCE_THRESHOLD_DB = -40    # -50 (very conservative) to -30 (very sensitive)
 SILENCE_MIN_LENGTH_MS = 700   # 300ms (granular) to 1500ms (conservative)
@@ -551,7 +563,7 @@ Redeploy Modal: `py -m modal deploy modal_app/app.py`
 
 **"Modal service unavailable"**: The Modal app isn't deployed. Run `py -m modal deploy modal_app/app.py`.
 
-**Slow first request**: Cold start takes 30-60s to download model and spin up GPU. Enable memory snapshots in `config.py`:
+**Slow first request**: Cold start takes 30-60s to download model and spin up GPU. Memory snapshots are enabled by default in `modal_app/app.py`:
 ```python
 ENABLE_CPU_MEMORY_SNAPSHOT = True
 ENABLE_GPU_MEMORY_SNAPSHOT = True  # Experimental, 85-90% faster cold starts
@@ -561,14 +573,14 @@ ENABLE_GPU_MEMORY_SNAPSHOT = True  # Experimental, 85-90% faster cold starts
 
 **GPU out of memory**: Parakeet TDT 0.6B needs ~3-4GB VRAM (much less than previous models). FLUX.1-schnell needs ~12-14GB VRAM with CPU offload. L4 (24GB VRAM) handles both comfortably.
 
-**Too many/few segments in streaming**: Adjust silence detection parameters in `config.py`:
+**Too many/few segments in streaming**: Adjust silence detection parameters in `modal_app/app.py`:
 - Too many segments: Increase `SILENCE_THRESHOLD_DB` and `SILENCE_MIN_LENGTH_MS`
 - Too few segments: Decrease `SILENCE_THRESHOLD_DB` and `SILENCE_MIN_LENGTH_MS`
 
 **NeMo verbose logs**: The `NoStdStreams` context manager in `modal_app/app.py` suppresses NeMo's stdout/stderr during transcription. If you need to debug, temporarily remove the `with NoStdStreams():` context.
 
 **Speaker diarization not working**: Check these common issues:
-- Ensure `ENABLE_SPEAKER_DIARIZATION = True` in `config.py`
+- Ensure `ENABLE_SPEAKER_DIARIZATION = True` in `config.py` (API layer feature flag)
 - Check Modal logs for diarization errors: `py -m modal app logs transcodio-app`
 - Diarization requires at least ~5-10 seconds of audio with distinct speakers
 - Single-speaker audio will show "Speaker 1" for all segments (this is expected)
@@ -583,14 +595,14 @@ ENABLE_GPU_MEMORY_SNAPSHOT = True  # Experimental, 85-90% faster cold starts
 **Meeting minutes not generating**:
 - Ensure Modal secret exists: `py -m modal secret list` should show `anthropic-api-key`
 - Create the secret if missing: `py -m modal secret create anthropic-api-key ANTHROPIC_API_KEY=sk-ant-...`
-- Check `ENABLE_MEETING_MINUTES = True` in `config.py`
+- Check `ENABLE_MEETING_MINUTES = True` in `config.py` (API layer feature flag)
 - Verify API key is valid and has credits
 - Check Modal logs for API errors: `py -m modal app logs transcodio-app`
 
 **Image generation not working**:
 - Ensure Modal secret exists: `py -m modal secret list` should show `hf-token`
 - Create the secret if missing: `py -m modal secret create hf-token HF_TOKEN=hf_...`
-- Check `ENABLE_IMAGE_GENERATION = True` in `config.py`
+- Check `ENABLE_IMAGE_GENERATION = True` in `config.py` (API layer feature flag)
 - Verify HuggingFace token has access to FLUX.1-schnell (may require accepting model terms)
 - Check Modal logs for errors: `py -m modal app logs transcodio-app`
 - First request may timeout due to cold start - retry after a few minutes
