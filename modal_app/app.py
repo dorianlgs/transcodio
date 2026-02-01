@@ -9,12 +9,71 @@ from pathlib import Path
 
 import modal
 
-# Add parent directory to path for config import
-# Works locally: modal_app/app.py -> transcodio/
-# Works in Modal container: /root/app.py -> config.py is at /root/
-sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent))  # For Modal container where config.py is alongside app.py
-import config
+# =============================================================================
+# MODAL CONFIG - Embedded to avoid import issues in Modal containers
+# Keep in sync with config.py
+# =============================================================================
+
+# Modal configuration
+MODAL_APP_NAME = "transcodio-app"
+MODAL_VOLUME_NAME = "parakeet-models"
+MODAL_GPU_TYPE = "L4"
+MODAL_CONTAINER_IDLE_TIMEOUT = 120
+MODAL_TIMEOUT = 3000
+MODAL_MEMORY_MB = 8192
+
+# Cold start optimization flags
+ENABLE_CPU_MEMORY_SNAPSHOT = True
+ENABLE_GPU_MEMORY_SNAPSHOT = True
+ENABLE_MODEL_WARMUP = False
+EXTENDED_IDLE_TIMEOUT = False
+EXTENDED_IDLE_TIMEOUT_SECONDS = 300
+
+# STT Model configuration
+STT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
+SAMPLE_RATE = 16000
+
+# Silence detection
+SILENCE_THRESHOLD_DB = -40
+SILENCE_MIN_LENGTH_MS = 700
+
+# Speaker diarization
+ENABLE_SPEAKER_DIARIZATION = True
+DIARIZATION_MODEL = "nvidia/speakerverification_en_titanet_large"
+DIARIZATION_MIN_SPEAKERS = 1
+DIARIZATION_MAX_SPEAKERS = 5
+DIARIZATION_WINDOW_LENGTHS = [1.5, 1.0, 0.5]
+DIARIZATION_SHIFT_LENGTH = 0.75
+
+# Meeting minutes
+ANTHROPIC_MODEL_ID = "claude-haiku-4-5-20251001"
+MINUTES_MAX_INPUT_TOKENS = 8000
+MINUTES_MAX_OUTPUT_TOKENS = 2048
+MINUTES_TEMPERATURE = 0.3
+MINUTES_CONTAINER_IDLE_TIMEOUT = 60
+
+# Voice cloning
+TTS_MODELS = {
+    "qwen": {
+        "name": "Qwen3-TTS",
+        "model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+        "sample_rate": 24000,
+        "gpu_type": "L4",
+        "memory_mb": 8192,
+        "description": "Fast, good quality (1.7B params)",
+    },
+}
+TTS_CONTAINER_IDLE_TIMEOUT = 120
+VOICES_INDEX_FILE = "index.json"
+MAX_SAVED_VOICES = 50
+
+# Image generation
+IMAGE_GENERATION_MODEL = "black-forest-labs/FLUX.1-schnell"
+IMAGE_GPU_TYPE = "L4"
+IMAGE_MEMORY_MB = 16384
+IMAGE_CONTAINER_IDLE_TIMEOUT = 120
+
+# =============================================================================
 
 # Create the container image with all required dependencies
 stt_image = (
@@ -27,7 +86,6 @@ stt_image = (
         "DEBIAN_FRONTEND": "noninteractive",
         "CXX": "g++",
         "CC": "g++",
-        "PYTHONPATH": "/root",  # Ensure config.py is found
     })
     .apt_install("ffmpeg")
     .uv_pip_install(
@@ -40,22 +98,12 @@ stt_image = (
         "scikit-learn>=1.3.0",  # For spectral clustering
         "soundfile>=0.12.1",    # For audio file I/O
     )
-    # Add config file to the image
-    .add_local_file(
-        str(Path(__file__).parent.parent / "config.py"),
-        "/root/config.py"
-    )
 )
 
 # Anthropic API image for meeting minutes generation (no GPU needed)
 anthropic_image = (
     modal.Image.debian_slim(python_version="3.12")
-    .env({"PYTHONPATH": "/root"})
     .pip_install("anthropic>=0.40.0")
-    .add_local_file(
-        str(Path(__file__).parent.parent / "config.py"),
-        "/root/config.py"
-    )
 )
 
 # Image generation image for FLUX.1-schnell
