@@ -123,7 +123,7 @@ let selectedVoiceId = null;
 // Initialize
 function init() {
     setupEventListeners();
-    loadSavedVoices();
+    // Don't load voices on init - will load when user switches to voice clone mode
 }
 
 // Event Listeners
@@ -887,6 +887,8 @@ function switchMode(mode) {
         uploadSection.classList.remove('hidden');
     } else if (mode === 'voice-clone') {
         voiceCloneSection.classList.remove('hidden');
+        // Load saved voices when switching to voice clone mode
+        loadSavedVoices();
     } else if (mode === 'image-gen') {
         imageGenSection.classList.remove('hidden');
     }
@@ -1147,7 +1149,14 @@ function resetVoiceClone() {
     charCount.textContent = '0';
     languageSelect.value = 'Spanish';
     ttsModelSelect.value = 'qwen';
+    voiceNameInput.value = '';
     updateModelHint();
+
+    // Clear saved voice inputs
+    savedVoiceTargetText.value = '';
+    savedVoiceCharCount.textContent = '0';
+    selectedVoiceId = null;
+    updateSynthesizeButton();
 
     // Clear generated audio
     generatedAudioSessionId = null;
@@ -1158,7 +1167,8 @@ function resetVoiceClone() {
     voiceCloneProcessing.classList.add('hidden');
     voiceCloneSection.classList.remove('hidden');
 
-    // Switch to upload tab
+    // Switch to saved voices mode and reload
+    switchVoiceMode('saved');
     switchRefAudioTab('upload');
 }
 
@@ -1290,19 +1300,51 @@ async function loadSavedVoices() {
     noVoicesMessage.classList.add('hidden');
 
     try {
-        const response = await fetch('/api/voices');
-        const data = await response.json();
+        // Add timeout to prevent infinite loading
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+        const response = await fetch('/api/voices', {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
-            throw new Error(data.detail || 'Error al cargar voces');
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.detail || `Error ${response.status}`);
         }
 
+        const data = await response.json();
         savedVoices = data.voices || [];
         renderSavedVoices();
 
     } catch (error) {
         console.error('Error loading voices:', error);
-        savedVoicesList.innerHTML = '<div class="error-message">Error al cargar voces</div>';
+        let errorMsg = 'Error al cargar voces';
+        if (error.name === 'AbortError') {
+            errorMsg = 'Timeout al cargar voces. El servicio puede estar iniciando.';
+        } else if (error.message) {
+            errorMsg = `Error: ${error.message}`;
+        }
+
+        // Show error in the list area with retry button
+        savedVoicesList.innerHTML = `
+            <div class="error-message">
+                ${errorMsg}
+                <button class="btn btn-secondary retry-btn" onclick="loadSavedVoices()" style="margin-top: 0.5rem;">
+                    Reintentar
+                </button>
+            </div>`;
+
+        // Show the "create new voice" option even on error
+        const msgElement = noVoicesMessage.querySelector('p');
+        if (msgElement) {
+            msgElement.textContent = 'No se pudieron cargar las voces guardadas.';
+        }
+        noVoicesMessage.classList.remove('hidden');
+
+        // Disable synthesize button since we can't select a voice
+        synthesizeBtn.disabled = true;
     }
 }
 

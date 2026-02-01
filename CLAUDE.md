@@ -12,6 +12,8 @@ Key features:
 - **Speaker diarization** using NVIDIA TitaNet for automatic speaker identification
 - **Audio playback** with integrated player using session-based caching
 - **Image generation** using FLUX.1-schnell model for text-to-image
+- **Voice cloning** using Qwen3-TTS with saved voice profiles
+- **Saved voices** with persistent storage in Modal Volume
 - FastAPI web server with REST endpoints
 - Audio preprocessing and validation using FFmpeg
 - Support for multiple audio formats (MP3, WAV, M4A, FLAC, OGG, WebM)
@@ -63,7 +65,7 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
   - `/api/generate-image`: Accepts prompt, width, height parameters; returns session ID
   - `/api/image/{session_id}`: Retrieves generated image as PNG
   - In-memory image cache with 1-hour expiry
-- Connects to Modal using `modal.Cls.from_name()` to lookup deployed models (`ParakeetSTTModel`, `SpeakerDiarizerModel`, `FluxImageGenerator`)
+- Connects to Modal using `modal.Cls.from_name()` to lookup deployed models (`ParakeetSTTModel`, `SpeakerDiarizerModel`, `FluxImageGenerator`, `VoiceStorage`, `Qwen3TTSVoiceCloner`)
 - Audio validation happens before sending to Modal to save GPU costs
 - SSE streaming converts Modal's synchronous generator to async for FastAPI
 - **Speaker diarization integration**: Runs after transcription completes, yields `speakers_ready` event with annotated segments
@@ -99,6 +101,10 @@ User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes 
     - `IMAGE_NUM_INFERENCE_STEPS` (4 steps, optimized for schnell)
     - `IMAGE_GUIDANCE_SCALE` (0.0 for schnell mode)
     - `IMAGE_CACHE_EXPIRY_HOURS` (1 hour cache)
+  - **Saved voices settings**:
+    - `VOICES_STORAGE_PATH` (path within Modal Volume)
+    - `VOICES_INDEX_FILE` (index.json)
+    - `MAX_SAVED_VOICES` (default: 50 voices)
 
 ## Common Commands
 
@@ -424,6 +430,62 @@ py -m modal secret create hf-token HF_TOKEN=hf_...
 - **"Image generation service unavailable"**: Ensure Modal app is deployed
 - **Out of memory**: Reduce image dimensions or enable CPU offload (already enabled by default)
 - **Slow generation**: First request triggers cold start; subsequent requests faster
+
+### Saved Voices (Voice Cloning)
+
+The service supports **persistent voice storage** for voice cloning. Users can save reference audio + transcription as a "voice profile" and reuse it later without re-uploading the audio.
+
+**How it works:**
+1. **Create voice profile**: User uploads reference audio (3-60s) + transcription + name
+2. **Save to Modal Volume**: Audio and metadata stored persistently in `/models/voices/`
+3. **List saved voices**: Frontend displays all saved voices with name, language, and preview
+4. **Synthesize with saved voice**: User selects voice + enters target text → generates audio
+5. **Delete voice**: Remove voice profile from storage
+
+**Storage Structure** (Modal Volume at `/models/voices/`):
+```
+/voices/
+  ├── index.json              # List of all voices (id, name, language, created_at)
+  └── {voice_id}/
+      ├── ref_audio.wav       # Reference audio (24kHz mono WAV)
+      └── metadata.json       # Full metadata (ref_text, language, etc.)
+```
+
+**API Endpoints:**
+- `GET /api/voices`: List all saved voices
+  - Returns: `SavedVoiceListResponse` with array of voices
+- `POST /api/voices`: Save a new voice
+  - Parameters: `name`, `ref_audio` (file), `ref_text`, `language`
+  - Returns: `SaveVoiceResponse` with `voice_id`
+- `DELETE /api/voices/{voice_id}`: Delete a saved voice
+  - Returns: `{ success: true }`
+- `POST /api/synthesize`: Synthesize audio with a saved voice
+  - Parameters: `voice_id`, `target_text`
+  - Returns: `SynthesizeResponse` with `audio_session_id`
+
+**Configuration** (in `config.py`):
+```python
+VOICES_STORAGE_PATH = "/voices"  # Path within Modal Volume
+VOICES_INDEX_FILE = "index.json"
+MAX_SAVED_VOICES = 50  # Maximum number of saved voices
+```
+
+**Key features:**
+- **Persistent storage**: Voices survive container restarts and redeploys
+- **Shared access**: All users see the same voices (no authentication)
+- **Quick synthesis**: No need to re-upload reference audio each time
+- **Metadata preserved**: Language, transcription text stored with voice
+
+**Frontend UI:**
+- Voice Clone section has two tabs: "Voces Guardadas" and "Nueva Voz"
+- Saved voices displayed as selectable cards with name, language, date
+- "Guardar Voz" button saves current voice profile after entering a name
+- Delete button removes voice from storage
+
+**Troubleshooting:**
+- **Voices not loading**: Ensure Modal app is deployed with VoiceStorage class
+- **Save failed**: Check if MAX_SAVED_VOICES limit reached (default 50)
+- **Duplicate name error**: Voice names must be unique (case-insensitive)
 
 ### Cost Optimization
 

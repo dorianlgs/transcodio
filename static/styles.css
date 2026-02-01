@@ -1235,6 +1235,14 @@ body {
     text-align: center;
     padding: 2rem;
     color: var(--error);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.error-message .retry-btn {
+    margin-top: 0.5rem;
 }
 
 /* Saved Voice Item */
