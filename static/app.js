@@ -926,9 +926,9 @@ function loadRefAudioFile(file) {
         return;
     }
 
-    // Validate file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-        showToast('El archivo es demasiado grande. Máximo 10MB.', 'error');
+    // Validate file size (max 15MB)
+    if (file.size > 15 * 1024 * 1024) {
+        showToast('El archivo es demasiado grande. Máximo 15MB.', 'error');
         return;
     }
 
@@ -1060,8 +1060,8 @@ async function generateVoiceClone() {
         return;
     }
 
-    if (targetText.length > 500) {
-        showToast('El texto a sintetizar no puede exceder 500 caracteres', 'error');
+    if (targetText.length > 50000) {
+        showToast('El texto a sintetizar no puede exceder 50000 caracteres', 'error');
         return;
     }
 
@@ -1435,8 +1435,8 @@ async function synthesizeWithSavedVoice() {
         return;
     }
 
-    if (targetText.length > 500) {
-        showToast('El texto no puede exceder 500 caracteres', 'error');
+    if (targetText.length > 50000) {
+        showToast('El texto no puede exceder 50000 caracteres', 'error');
         return;
     }
 

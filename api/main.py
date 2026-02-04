@@ -506,11 +506,11 @@ async def voice_clone(
         ref_audio_bytes = await ref_audio.read()
         file_size = len(ref_audio_bytes)
 
-        # Validate file size (max 10MB for reference audio)
-        if file_size > 10 * 1024 * 1024:
+        # Validate file size (max 15MB for reference audio)
+        if file_size > 15 * 1024 * 1024:
             raise HTTPException(
                 status_code=400,
-                detail="Reference audio too large. Maximum 10MB."
+                detail="Reference audio too large. Maximum 15MB."
             )
 
         # Preprocess reference audio (convert to 24kHz mono WAV)
@@ -676,8 +676,8 @@ async def save_voice(
         ref_audio_bytes = await ref_audio.read()
         file_size = len(ref_audio_bytes)
 
-        if file_size > 10 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="Reference audio too large (max 10MB)")
+        if file_size > 15 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Reference audio too large (max 15MB)")
 
         # Preprocess audio
         try:
