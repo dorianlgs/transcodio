@@ -4,109 +4,196 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Transcodio is a production-ready audio transcription service using NVIDIA's Parakeet TDT 0.6B v3 model deployed on Modal's serverless GPU infrastructure. The service provides real-time progressive streaming transcription via Server-Sent Events (SSE) with silence-based segmentation.
+Transcodio is a production-ready AI platform deployed on Modal's serverless GPU infrastructure. It combines audio transcription, voice cloning, and image generation into a unified web service with real-time streaming.
 
 Key features:
-- GPU-accelerated transcription using NVIDIA L4 GPUs on Modal
-- **Real progressive streaming** with silence detection (yields segments as they complete)
+- **Real progressive streaming** transcription with silence detection (yields segments as they complete)
 - **Speaker diarization** using NVIDIA TitaNet for automatic speaker identification
-- **Audio playback** with integrated player using session-based caching
-- **Image generation** using FLUX.1-schnell model for text-to-image
-- **Voice cloning** using Qwen3-TTS with saved voice profiles
+- **Meeting minutes** generation using Anthropic Claude Haiku 4.5
+- **Voice cloning** using Qwen3-TTS with saved voice profiles and 10 language support
 - **Saved voices** with persistent storage in Modal Volume
-- FastAPI web server with REST endpoints
+- **Image generation** using FLUX.1-schnell model for text-to-image
+- **Audio playback** with integrated player using session-based caching
+- GPU-accelerated transcription using NVIDIA Parakeet TDT 0.6B v3 on L4 GPUs
+- FastAPI web server with REST endpoints and SSE streaming
 - Audio preprocessing and validation using FFmpeg
-- Support for multiple audio formats (MP3, WAV, M4A, FLAC, OGG, WebM)
+- Support for multiple audio formats (MP3, WAV, M4A, FLAC, OGG, WebM, MP4)
 - Subtitle export (SRT/VTT formats) with speaker labels
-- Lightweight model (0.6B parameters) for faster inference and lower costs
 
 ## Architecture
 
 The application has a three-tier architecture:
 
-1. **Frontend (static/)**: Browser-based UI with drag-and-drop and SSE streaming support
-2. **API Layer (api/)**: FastAPI application handling uploads, validation, and SSE streaming
-3. **GPU Backend (modal_app/)**: Modal serverless functions running NVIDIA Parakeet TDT model with NeMo framework
+1. **Frontend (static/)**: Browser-based UI with three modes — Transcription, Voice Cloning, Image Generation
+2. **API Layer (api/)**: FastAPI application handling uploads, validation, SSE streaming, and session caching
+3. **GPU Backend (modal_app/)**: Modal serverless functions with 6 classes across 4 container images
 
 Data flow:
 ```
-User uploads audio → FastAPI validates/preprocesses → Modal GPU transcribes → SSE streams results back
+User uploads audio → FastAPI validates/preprocesses → Modal GPU processes → Results streamed back via SSE
 ```
 
 ### Key Components
 
-**modal_app/app.py**:
-- Contains the `ParakeetSTTModel` class decorated with `@app.cls()`
-- Runs on Modal's serverless GPU infrastructure (NVIDIA L4)
-- Uses **NVIDIA NeMo framework** for ASR (Automatic Speech Recognition)
-- Two main methods: `transcribe()` for complete results, `transcribe_stream()` for progressive streaming
-- **Real streaming**: Detects silence boundaries using pydub, transcribes segments progressively
-- **Embedded configuration**: All Modal-specific settings are embedded directly at the top of the file (not imported from config.py) to avoid import issues in Modal containers
-- **Speaker diarization**: `SpeakerDiarizerModel` class using NVIDIA TitaNet for speaker embeddings
-  - Single-scale embedding extraction (1.5s windows by default, prevents multi-scale artifacts)
-  - Automatic speaker count detection using combined score with complexity penalty
-  - AgglomerativeClustering with cosine distance to identify and label speakers
-  - Complexity penalty (0.15 per speaker) prevents over-segmentation
-  - `align_speakers_to_segments()` function maps speaker labels to transcription segments
-- Uses Modal volumes to cache the model at `/models` to avoid redownloading
-- Container stays warm for `MODAL_CONTAINER_IDLE_TIMEOUT` seconds (default 120s) to reduce cold starts
-- **NoStdStreams** context manager suppresses NeMo's verbose logging
-- **Image generation**: `FluxImageGenerator` class using FLUX.1-schnell for text-to-image generation
-  - Uses diffusers library with bfloat16 precision
-  - Sequential CPU offload for lower memory usage
-  - Optimized for 4 inference steps (schnell mode)
+**modal_app/app.py** — 6 Modal classes across 4 container images:
 
-**api/main.py**:
-- FastAPI application with two transcription endpoints: `/api/transcribe` (non-streaming) and `/api/transcribe/stream` (SSE)
-- **Audio session management**: `/api/audio/{session_id}` endpoint serves cached audio for playback
-  - Generates UUID session IDs for each transcription
-  - Caches original uploaded audio files for 1 hour
-  - Automatic cleanup of expired audio cache entries
-- **Image generation endpoints**: `/api/generate-image` (POST) and `/api/image/{session_id}` (GET)
-  - `/api/generate-image`: Accepts prompt, width, height parameters; returns session ID
-  - `/api/image/{session_id}`: Retrieves generated image as PNG
-  - In-memory image cache with 1-hour expiry
-- Connects to Modal using `modal.Cls.from_name()` to lookup deployed models (`ParakeetSTTModel`, `SpeakerDiarizerModel`, `FluxImageGenerator`, `VoiceStorage`, `Qwen3TTSVoiceCloner`)
+| Class | Image | GPU | Timeout | Purpose |
+|-------|-------|-----|---------|---------|
+| `ParakeetSTTModel` | `stt_image` (CUDA 12.8 + NeMo) | L4 | 3000s | Transcription (streaming + non-streaming) |
+| `SpeakerDiarizerModel` | `stt_image` | L4 | 3000s | Speaker identification with TitaNet |
+| `VoiceStorage` | `debian_slim` (no GPU) | — | 60s | Persistent voice profile management |
+| `Qwen3TTSVoiceCloner` | `qwen_tts_image` (CUDA 12.8 + qwen-tts) | L4 | 300s | Voice cloning and synthesis |
+| `FluxImageGenerator` | `flux_image` (CUDA 12.8 + diffusers) | L4 | 600s | Text-to-image generation |
+| `MeetingMinutesGenerator` | `anthropic_image` (debian_slim) | — | 120s | Meeting minutes via Claude API |
+
+Key implementation details:
+- **Embedded configuration**: All Modal-specific settings are embedded directly at the top of the file (not imported from config.py) to avoid import issues in Modal containers
+- **4 container images**: `stt_image` (NeMo + CUDA), `anthropic_image` (lightweight), `flux_image` (diffusers + CUDA), `qwen_tts_image` (qwen-tts + CUDA)
+- **ParakeetSTTModel**: Uses NeMo framework for ASR. Two methods: `transcribe()` and `transcribe_stream()`. Real streaming detects silence boundaries using pydub.
+- **SpeakerDiarizerModel**: Single-scale embedding extraction (1.5s windows), AgglomerativeClustering with cosine distance, complexity penalty (0.15/speaker)
+- **VoiceStorage**: Manages voice profiles on Modal Volume at `/models/voices/`. Methods: `list_voices()`, `get_voice()`, `save_voice()`, `delete_voice()`
+- **Qwen3TTSVoiceCloner**: Loads `Qwen/Qwen3-TTS-12Hz-1.7B-Base` with bfloat16 on CUDA. Method: `generate_voice_clone(ref_audio_bytes, ref_text, target_text, language)`
+- **FluxImageGenerator**: FLUX.1-schnell with sequential CPU offload. Requires `hf-token` Modal secret. Method: `generate_image(prompt, width, height, num_inference_steps, guidance_scale)`
+- **MeetingMinutesGenerator**: Claude Haiku 4.5 API. Requires `anthropic-api-key` Modal secret. Spanish-language prompts with date awareness. Method: `generate_minutes(transcription, speakers)`
+- **NoStdStreams** context manager suppresses NeMo's verbose logging
+- **`align_speakers_to_segments()`** function maps speaker labels to transcription segments based on maximum temporal overlap
+- Uses Modal Volume at `/models` to cache all models (Parakeet, TitaNet, Qwen3-TTS, FLUX.1-schnell)
+- CPU and GPU memory snapshots enabled by default for faster cold starts
+
+**api/main.py** — FastAPI application with all endpoints:
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/` | Serve web UI (index.html) |
+| GET | `/health` | Health check |
+| POST | `/api/transcribe` | Non-streaming transcription |
+| POST | `/api/transcribe/stream` | Streaming transcription (SSE) with optional diarization & minutes |
+| GET | `/api/audio/{session_id}` | Retrieve cached audio for playback |
+| POST | `/api/voice-clone` | Clone voice and synthesize text (single-shot) |
+| GET | `/api/voices` | List all saved voice profiles |
+| POST | `/api/voices` | Save a new voice profile |
+| DELETE | `/api/voices/{voice_id}` | Delete a saved voice |
+| POST | `/api/synthesize` | Synthesize text with a saved voice |
+| POST | `/api/generate-image` | Generate image from text prompt |
+| GET | `/api/image/{session_id}` | Retrieve generated image as PNG |
+
+Key implementation details:
+- Connects to Modal using `modal.Cls.from_name()` to lookup deployed classes
+- **Two in-memory caches**: `audio_cache` (audio sessions, 1hr expiry) and `image_cache` (images, 1hr expiry)
 - Audio validation happens before sending to Modal to save GPU costs
-- SSE streaming converts Modal's synchronous generator to async for FastAPI
-- **Speaker diarization integration**: Runs after transcription completes, yields `speakers_ready` event with annotated segments
+- SSE streaming converts Modal's synchronous generator to async via `event_generator()`
+- Speaker diarization runs after transcription completes, yields `speakers_ready` event
+- Meeting minutes run after completion, yields `minutes_ready` or `minutes_error` event
+- Voice clone endpoint supports model selection via `tts_model` param (currently only `qwen`)
+- Reference audio preprocessing converts to 24kHz mono WAV for TTS (vs 16kHz for STT)
+
+**api/models.py** — Pydantic response models:
+- `TranscriptionResponse`, `TranscriptionSegment`, `TranscriptionStreamEvent`
+- `VoiceCloneResponse`, `SavedVoice`, `SavedVoiceListResponse`, `SaveVoiceResponse`, `SynthesizeResponse`
+- `ImageGenerationResponse`
+- `ErrorResponse`, `HealthResponse`
+
+**api/streaming.py** — SSE utilities:
+- `create_sse_response()`: Wraps async generator as EventSourceResponse
+- `format_sse_event()`: Formats data as SSE event string
+- `transcription_event_stream()`: Converts Modal transcription segments into SSE events
 
 **utils/audio.py**:
 - Audio validation pipeline: file size → format → duration → preprocessing
-- Uses FFmpeg to preprocess audio (convert to mono, **16kHz WAV**) for optimal Parakeet TDT performance
+- `validate_audio_file()`: Complete validation + preprocessing, accepts optional `target_sample_rate` param
+- Uses FFmpeg to preprocess audio (convert to mono WAV at target sample rate)
+- Default target: **16kHz** for STT, **24kHz** for TTS
+- Handles browser-recorded WebM files with missing duration metadata (WAV conversion fallback)
 - All validation happens locally before sending to Modal GPU
 
-**config.py**:
-- Configuration for the **API layer** (FastAPI server) - file limits, API settings, feature flags
+**config.py** — Configuration for the **API layer** (FastAPI server):
 - **Note**: Modal-specific settings are duplicated/embedded in `modal_app/app.py` to avoid import issues in Modal containers. When changing Modal settings, update both files.
 - Key settings:
-  - `STT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"` (HuggingFace model ID)
-  - `SAMPLE_RATE = 16000` (Parakeet's native sample rate)
-  - `MODAL_GPU_TYPE` (GPU type), `MAX_FILE_SIZE_MB`, `MAX_DURATION_SECONDS`
-  - **Silence detection params**: `SILENCE_THRESHOLD_DB`, `SILENCE_MIN_LENGTH_MS`
-  - **Speaker diarization settings**:
-    - `ENABLE_SPEAKER_DIARIZATION` (feature flag, default: True)
-    - `DIARIZATION_MODEL = "nvidia/speakerverification_en_titanet_large"`
-    - `DIARIZATION_MIN_SPEAKERS`, `DIARIZATION_MAX_SPEAKERS` (default: 1-5)
-    - `DIARIZATION_WINDOW_LENGTHS` (multi-scale windows: [1.5, 1.0, 0.5] seconds)
-    - `DIARIZATION_SHIFT_LENGTH` (default: 0.75 seconds)
-  - **Meeting minutes settings** (Anthropic Claude API):
-    - `ENABLE_MEETING_MINUTES` (feature flag, default: True)
-    - `ANTHROPIC_MODEL_ID = "claude-haiku-4-5-20251001"` (Claude Haiku 4.5)
-    - `MINUTES_MAX_INPUT_TOKENS`, `MINUTES_MAX_OUTPUT_TOKENS`
-    - `MINUTES_TEMPERATURE` (default: 0.3 for structured output)
-  - **Image generation settings** (FLUX.1-schnell):
-    - `ENABLE_IMAGE_GENERATION` (feature flag, default: True)
-    - `IMAGE_GENERATION_MODEL = "black-forest-labs/FLUX.1-schnell"`
-    - `IMAGE_GPU_TYPE`, `IMAGE_MEMORY_MB` (L4 GPU, 16GB memory)
-    - `IMAGE_DEFAULT_WIDTH`, `IMAGE_DEFAULT_HEIGHT` (768x768 default)
-    - `IMAGE_NUM_INFERENCE_STEPS` (4 steps, optimized for schnell)
-    - `IMAGE_GUIDANCE_SCALE` (0.0 for schnell mode)
-    - `IMAGE_CACHE_EXPIRY_HOURS` (1 hour cache)
-  - **Saved voices settings**:
-    - `VOICES_STORAGE_PATH` (path within Modal Volume)
-    - `VOICES_INDEX_FILE` (index.json)
-    - `MAX_SAVED_VOICES` (default: 50 voices)
+
+```python
+# Audio file limits
+MAX_FILE_SIZE_MB = 100
+MAX_DURATION_SECONDS = 3600  # 60 minutes
+SUPPORTED_FORMATS = ["mp3", "wav", "m4a", "flac", "ogg", "webm", "mp4"]
+
+# STT Model
+STT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
+SAMPLE_RATE = 16000  # Parakeet's native sample rate
+
+# Modal
+MODAL_APP_NAME = "transcodio-app"
+MODAL_VOLUME_NAME = "parakeet-models"
+MODAL_GPU_TYPE = "L4"
+MODAL_CONTAINER_IDLE_TIMEOUT = 120
+MODAL_TIMEOUT = 3000  # 50 min max processing
+MODAL_MEMORY_MB = 8192
+
+# Cold start optimization
+ENABLE_CPU_MEMORY_SNAPSHOT = True
+ENABLE_GPU_MEMORY_SNAPSHOT = True  # 85-90% faster cold starts
+ENABLE_MODEL_WARMUP = False
+EXTENDED_IDLE_TIMEOUT = False
+
+# Silence detection (streaming segmentation)
+SILENCE_THRESHOLD_DB = -40
+SILENCE_MIN_LENGTH_MS = 700
+
+# Speaker diarization
+ENABLE_SPEAKER_DIARIZATION = True
+DIARIZATION_MODEL = "nvidia/speakerverification_en_titanet_large"
+DIARIZATION_MIN_SPEAKERS = 1
+DIARIZATION_MAX_SPEAKERS = 5
+DIARIZATION_WINDOW_LENGTHS = [1.5, 1.0, 0.5]  # Only first value used (single-scale)
+DIARIZATION_SHIFT_LENGTH = 0.75
+
+# Meeting minutes (Anthropic Claude API)
+ENABLE_MEETING_MINUTES = True
+ANTHROPIC_MODEL_ID = "claude-haiku-4-5-20251001"
+MINUTES_MAX_INPUT_TOKENS = 8000
+MINUTES_MAX_OUTPUT_TOKENS = 2048
+MINUTES_TEMPERATURE = 0.3
+MINUTES_CONTAINER_IDLE_TIMEOUT = 60
+
+# Voice cloning
+ENABLE_VOICE_CLONING = True
+TTS_MODELS = {
+    "qwen": {
+        "name": "Qwen3-TTS",
+        "model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+        "sample_rate": 24000,
+        "gpu_type": "L4",
+        "memory_mb": 8192,
+    },
+}
+DEFAULT_TTS_MODEL = "qwen"
+TTS_CONTAINER_IDLE_TIMEOUT = 120
+VOICE_CLONE_MIN_REF_DURATION = 3    # seconds
+VOICE_CLONE_MAX_REF_DURATION = 300  # seconds (5 minutes)
+VOICE_CLONE_MAX_TARGET_TEXT = 50000 # characters
+VOICE_CLONE_SAMPLE_RATE = 24000
+VOICE_CLONE_LANGUAGES = [
+    "English", "Spanish", "Chinese", "Japanese", "Korean",
+    "German", "French", "Russian", "Portuguese", "Italian"
+]
+
+# Saved voices
+VOICES_STORAGE_PATH = "/voices"
+VOICES_INDEX_FILE = "index.json"
+MAX_SAVED_VOICES = 50
+
+# Image generation (FLUX.1-schnell)
+ENABLE_IMAGE_GENERATION = True
+IMAGE_GENERATION_MODEL = "black-forest-labs/FLUX.1-schnell"
+IMAGE_GPU_TYPE = "L4"
+IMAGE_MEMORY_MB = 16384
+IMAGE_CONTAINER_IDLE_TIMEOUT = 120
+IMAGE_MAX_PROMPT_LENGTH = 500
+IMAGE_DEFAULT_WIDTH = 768
+IMAGE_DEFAULT_HEIGHT = 768
+IMAGE_NUM_INFERENCE_STEPS = 4
+IMAGE_GUIDANCE_SCALE = 0.0
+IMAGE_CACHE_EXPIRY_HOURS = 1
+```
 
 ## Common Commands
 
@@ -158,8 +245,20 @@ curl -X POST "http://localhost:8000/api/transcribe" -F "file=@audio.mp3"
 # Test streaming endpoint
 curl -X POST "http://localhost:8000/api/transcribe/stream" -F "file=@audio.mp3"
 
-# Test image generation endpoint
-curl -X POST "http://localhost:8000/api/generate-image" -F "prompt=a beautiful sunset over mountains" -F "width=768" -F "height=768"
+# Test voice cloning
+curl -X POST "http://localhost:8000/api/voice-clone" \
+  -F "ref_audio=@reference.wav" \
+  -F "ref_text=Hello this is my voice" \
+  -F "target_text=Text to synthesize" \
+  -F "language=English"
+
+# Test saved voices
+curl "http://localhost:8000/api/voices"
+
+# Test image generation
+curl -X POST "http://localhost:8000/api/generate-image" \
+  -F "prompt=a beautiful sunset over mountains" \
+  -F "width=768" -F "height=768"
 ```
 
 ## Critical Implementation Details
@@ -173,13 +272,25 @@ model = STTModel()
 result = model.transcribe.remote(audio_bytes)
 ```
 
+All 6 classes are looked up the same way:
+```python
+modal.Cls.from_name("transcodio-app", "ParakeetSTTModel")
+modal.Cls.from_name("transcodio-app", "SpeakerDiarizerModel")
+modal.Cls.from_name("transcodio-app", "VoiceStorage")
+modal.Cls.from_name("transcodio-app", "Qwen3TTSVoiceCloner")
+modal.Cls.from_name("transcodio-app", "FluxImageGenerator")
+modal.Cls.from_name("transcodio-app", "MeetingMinutesGenerator")
+```
+
 The Modal app MUST be deployed before running the FastAPI server, otherwise you'll get "Modal service unavailable" errors.
 
 ### Audio Preprocessing
 
-All audio goes through preprocessing before transcription:
+All audio goes through preprocessing before transcription or TTS:
 1. **Validation**: Check file size, format, and duration (utils/audio.py)
-2. **Conversion**: FFmpeg converts to mono, **16kHz WAV** (Parakeet TDT's native format)
+2. **Conversion**: FFmpeg converts to mono WAV at target sample rate
+   - **16kHz** for STT (Parakeet TDT's native format)
+   - **24kHz** for TTS (Qwen3-TTS's native format)
 3. **Transmission**: Send preprocessed bytes to Modal GPU
 
 This preprocessing happens in the FastAPI layer, not on Modal, to keep GPU time minimal and reduce costs.
@@ -197,43 +308,36 @@ The streaming endpoint uses **real progressive streaming** with silence detectio
 2. **FastAPI's `event_generator()`**:
    - Converts Modal's synchronous generator to async
    - Formats as SSE events
+   - Handles diarization and minutes generation after transcription completes
 
 3. **Browser receives SSE events**:
    - `metadata`: Audio duration and language
    - `progress`: Each transcribed segment (yields multiple times)
-   - `speakers_ready`: Speaker-annotated segments after diarization completes (optional, if enabled)
-   - `complete`: Transcription finished (includes full transcription text and audio session ID for playback)
+   - `speakers_ready`: Speaker-annotated segments after diarization completes (optional)
+   - `minutes_ready`: Structured meeting minutes (optional)
+   - `minutes_error`: Minutes generation failed (non-fatal)
+   - `complete`: Transcription finished (includes full transcription text and audio session ID)
    - `error`: Any errors during processing
 
-**Key Difference from Previous Implementation**:
-- **Before (Kyutai)**: Transcribed entire audio, yielded single segment at end ("fake streaming")
-- **Now (Parakeet)**: Detects natural pauses, yields segments progressively as they complete (**real streaming**)
-
-**Recent Improvements**:
-- **Embedded Modal configuration**: All Modal-specific settings are now embedded directly in `modal_app/app.py` instead of importing from `config.py`, avoiding import issues in Modal containers
-- **Full transcription in completion**: The final `complete` event now includes the complete transcription text assembled from all segments, making it easier to retrieve the entire result
-- **Segment accumulation**: All segment texts are accumulated during streaming and returned together in the completion event
-- **UI enhancements**: Copy button relocated inside the full text container for better user experience and more intuitive access
-- **Speaker diarization**: Automatic speaker identification integrated into streaming pipeline
-- **Audio playback**: Session-based caching enables audio player functionality
-
-**Complete Streaming Flow with Speaker Diarization**:
+**Complete Streaming Flow**:
 ```
 1. User uploads audio → FastAPI validates & preprocesses
 2. Generate session ID, cache original audio
 3. Stream to Modal GPU → Parakeet transcribes with silence detection
-4. Frontend receives progressive segments via SSE (`metadata` → `progress` events)
-5. After transcription completes → TitaNet diarization runs in background
-6. Speaker labels aligned to segments → `speakers_ready` event updates UI
-7. Final `complete` event with full text & audio session ID
-8. Audio player loads using session ID from cache
-9. User can download transcription (TXT), subtitles (SRT/VTT), or listen to audio
+4. Frontend receives progressive segments via SSE (metadata → progress events)
+5. After transcription completes → TitaNet diarization runs (if enabled)
+6. Speaker labels aligned to segments → speakers_ready event updates UI
+7. Final complete event with full text & audio session ID
+8. Meeting minutes generated → minutes_ready event (if enabled)
+9. Audio player loads using session ID from cache
+10. User can download transcription (TXT), subtitles (SRT/VTT), or listen to audio
 ```
 
 This architecture ensures:
 - **Progressive feedback**: Users see segments as they're transcribed (not blocked by diarization)
-- **Non-blocking diarization**: Speaker identification happens asynchronously after transcription
-- **Graceful degradation**: If diarization fails, transcription still succeeds
+- **Non-blocking diarization**: Speaker identification happens after transcription
+- **Non-blocking minutes**: Meeting minutes generated after completion event
+- **Graceful degradation**: If diarization or minutes fail, transcription still succeeds
 - **Audio playback**: Original audio available for listening without re-uploading
 
 ### Silence Detection Tuning
@@ -245,114 +349,67 @@ SILENCE_THRESHOLD_DB = -40   # Lower = more sensitive (detects softer pauses)
 SILENCE_MIN_LENGTH_MS = 700  # Lower = detects shorter pauses
 ```
 
-**Current Configuration**:
-The default values have been optimized for balanced performance:
-- **-40 dB threshold**: Provides a good balance between detecting natural pauses and avoiding over-segmentation
-- **700ms minimum silence**: Catches most natural speech pauses without creating too many fragments
-- These values were tuned from initial settings (-35 dB / 400ms) to reduce excessive segmentation while maintaining responsiveness
-
 **Guidelines**:
-- **Fewer segments** (longer segments): Increase threshold to -45, increase min_length to 1000ms
-- **More segments** (shorter segments): Decrease threshold to -35, decrease min_length to 400ms
+- **Fewer segments** (longer): Increase threshold to -45, increase min_length to 1000ms
+- **More segments** (shorter): Decrease threshold to -35, decrease min_length to 400ms
 - **Balanced** (3-5 segments per minute): -40 dB, 700ms (current default)
 
 After changing these values, redeploy: `py -m modal deploy modal_app/app.py`
 
 ### Speaker Diarization
 
-The service includes **automatic speaker identification** that runs after transcription completes. This feature uses NVIDIA TitaNet embeddings combined with spectral clustering to identify and label different speakers.
-
 **How it works:**
-1. **Single-scale embedding extraction**: Audio is analyzed using 1.5s windows with 0.75s overlap (single-scale to avoid multi-scale artifacts)
-2. **Speaker embedding**: TitaNet model generates normalized speaker embeddings for each audio window
-3. **Automatic speaker detection**: Combined scoring with complexity penalty determines optimal number of speakers (1-5 by default)
-4. **Clustering**: AgglomerativeClustering with cosine distance groups similar embeddings to identify unique speakers
-5. **Alignment**: Speaker labels are mapped to transcription segments based on temporal overlap
-6. **Frontend display**: Segments show speaker badges (e.g., "Speaker 1", "Speaker 2")
-7. **Subtitle export**: Speaker labels are included in SRT/VTT downloads
-
-**Configuration** (in `modal_app/app.py` - embedded config at top of file):
-```python
-ENABLE_SPEAKER_DIARIZATION = True  # Toggle feature on/off
-DIARIZATION_MODEL = "nvidia/speakerverification_en_titanet_large"
-DIARIZATION_MIN_SPEAKERS = 1  # Minimum speakers to detect
-DIARIZATION_MAX_SPEAKERS = 5  # Maximum speakers (higher = slower)
-DIARIZATION_WINDOW_LENGTHS = [1.5, 1.0, 0.5]  # Only first value used (1.5s window)
-DIARIZATION_SHIFT_LENGTH = 0.75  # Window shift/overlap (seconds)
-```
+1. **Single-scale embedding extraction**: Audio analyzed using 1.5s windows with 0.75s overlap
+2. **Speaker embedding**: TitaNet generates normalized speaker embeddings per window
+3. **Automatic speaker detection**: Combined scoring with complexity penalty (1-5 speakers)
+4. **Clustering**: AgglomerativeClustering with cosine distance
+5. **Alignment**: Speaker labels mapped to transcription segments via temporal overlap
+6. **Frontend display**: Segments show speaker badges (e.g., "Speaker 1")
 
 **Algorithm details:**
-- **Clustering**: AgglomerativeClustering with cosine distance (better for speaker embeddings than euclidean)
-- **Speaker selection**: Combined score = 60% silhouette + 40% Calinski-Harabasz - complexity penalty
-- **Complexity penalty**: 0.15 per additional speaker (prefers simpler explanations per Occam's Razor)
-- **Single-scale**: Uses only the first window length to avoid multi-scale artifacts (previous versions had 3-speaker bias from multi-scale)
+- **Clustering**: AgglomerativeClustering with cosine distance + average linkage
+- **Speaker selection**: Combined score = 60% silhouette + 40% Calinski-Harabasz (normalized) - complexity penalty
+- **Complexity penalty**: 0.15 per additional speaker (prefers fewer speakers per Occam's Razor)
+- **Minimum segments**: Needs ≥10 embedding windows to attempt clustering; otherwise defaults to 1 speaker
+- **Single-scale**: Uses only first window length (1.5s) to avoid multi-scale artifacts
 
-**Performance considerations:**
-- Diarization runs **after** transcription completes, so it doesn't block streaming
-- Single-scale approach (1 window size) is faster and more accurate than multi-scale
-- Complexity penalty prevents over-segmentation (fewer false positives)
-- Processing time: ~1-3 seconds for a 1-minute audio file on L4 GPU
-- If diarization fails, transcription still completes successfully (graceful degradation)
+**Configuration** (in `modal_app/app.py`):
+```python
+ENABLE_SPEAKER_DIARIZATION = True
+DIARIZATION_MODEL = "nvidia/speakerverification_en_titanet_large"
+DIARIZATION_MIN_SPEAKERS = 1
+DIARIZATION_MAX_SPEAKERS = 5
+DIARIZATION_WINDOW_LENGTHS = [1.5, 1.0, 0.5]  # Only first value used
+DIARIZATION_SHIFT_LENGTH = 0.75
+```
 
-**Tuning tips:**
-- **More speakers**: Increase `DIARIZATION_MAX_SPEAKERS` in `modal_app/app.py` (trades speed for accuracy)
-- **Longer windows**: Change `DIARIZATION_WINDOW_LENGTHS[0]` to `2.0` for better speaker characterization
-- **Shorter windows**: Change to `1.0` for faster processing but less accurate speaker identification
-- **More overlap**: Decrease `DIARIZATION_SHIFT_LENGTH` to `0.5` for smoother speaker transitions
-- **Adjust complexity penalty**: Edit line ~621 in `modal_app/app.py` (higher = prefers fewer speakers)
-- **Disable entirely**: Set `ENABLE_SPEAKER_DIARIZATION = False` in `config.py` to skip diarization
+**Performance**: ~1-3 seconds for 1-minute audio. Runs after transcription (non-blocking). Graceful degradation on failure.
 
-After changing Modal settings, redeploy: `py -m modal deploy modal_app/app.py`
-
-### Audio Player
-
-The frontend includes an **integrated audio player** that allows users to listen to the original uploaded audio alongside the transcription.
-
-**How it works:**
-1. **Session management**: Each transcription generates a unique UUID session ID
-2. **Audio caching**: Original uploaded audio is cached server-side for 1 hour
-3. **Playback endpoint**: `/api/audio/{session_id}` serves the cached audio file
-4. **Automatic cleanup**: Expired audio sessions are cleaned up automatically
-5. **Format preservation**: Audio is served in its original format (MP3, WAV, etc.) for best browser compatibility
-
-**Key implementation details:**
-- Audio cache is **in-memory** (simple dict) - suitable for low-traffic scenarios
-- Cache stores **original uploaded files** (not preprocessed 16kHz WAV) for better quality
-- Session expiry: 1 hour after transcription
-- Browser audio player supports seeking, volume control, and playback speed
-- Audio loads automatically when transcription completes
-
-**Note**: For production with high traffic, consider replacing the in-memory cache with Redis or a similar persistent store.
+After changing settings, redeploy: `py -m modal deploy modal_app/app.py`
 
 ### Meeting Minutes Generation
 
-The service includes **AI-powered meeting minutes generation** using Anthropic's Claude Haiku 4.5 API. This feature analyzes transcriptions and extracts structured information including summaries, key points, decisions, and action items.
+Uses Anthropic Claude Haiku 4.5 API to generate structured meeting minutes in Spanish.
 
 **How it works:**
-1. **Transcription completes**: After audio is fully transcribed
-2. **API call**: Claude Haiku 4.5 analyzes the full transcription text
-3. **Date awareness**: Current date is injected into the prompt for relative date calculation
-4. **Structured output**: Returns JSON with executive summary, key points, decisions, action items, and participants
-5. **Frontend display**: Minutes tab shows organized meeting information
-6. **Download**: Export minutes as formatted TXT file
+1. Transcription completes → full text sent to Claude Haiku 4.5
+2. Current date injected into prompt for relative date calculation
+3. Returns JSON with executive summary, key points, decisions, action items, participants
+4. Frontend displays in Minutes tab with download option
 
-**Configuration** (in `modal_app/app.py` - embedded config at top of file):
+**Configuration** (in `modal_app/app.py`):
 ```python
-ANTHROPIC_MODEL_ID = "claude-haiku-4-5-20251001"  # Claude Haiku 4.5
-MINUTES_MAX_INPUT_TOKENS = 8000  # Max transcription length
-MINUTES_MAX_OUTPUT_TOKENS = 2048  # Max response length
-MINUTES_TEMPERATURE = 0.3  # Low for consistent structured output
-MINUTES_CONTAINER_IDLE_TIMEOUT = 60  # Container warm timeout
+ANTHROPIC_MODEL_ID = "claude-haiku-4-5-20251001"
+MINUTES_MAX_INPUT_TOKENS = 8000
+MINUTES_MAX_OUTPUT_TOKENS = 2048
+MINUTES_TEMPERATURE = 0.3
+MINUTES_CONTAINER_IDLE_TIMEOUT = 60
 ```
 
-**Feature flag** (in `config.py` - API layer):
-```python
-ENABLE_MEETING_MINUTES = True  # Toggle feature on/off
-```
+**Feature flag** (in `config.py`): `ENABLE_MEETING_MINUTES = True`
 
-**Modal Secret Setup** (required):
+**Modal Secret** (required):
 ```bash
-# Create the Anthropic API key secret in Modal
 py -m modal secret create anthropic-api-key ANTHROPIC_API_KEY=sk-ant-...
 ```
 
@@ -370,92 +427,52 @@ py -m modal secret create anthropic-api-key ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 **Key features:**
-- **Relative date calculation**: "mañana", "la próxima semana" are converted to actual dates
-- **Spanish language**: Prompts and output are in Spanish
-- **No GPU required**: Uses Anthropic API (runs on CPU-only Modal container)
-- **Fast**: Typical response time 2-5 seconds
-- **Graceful degradation**: If minutes generation fails, transcription still succeeds
+- **Relative date calculation**: "mañana", "la próxima semana" → actual dates
+- **Spanish language**: Prompts and output in Spanish
+- **No GPU required**: Runs on CPU-only Modal container
+- **JSON parsing**: Handles markdown code blocks and malformed JSON gracefully
 
-**Troubleshooting:**
-- **"anthropic-api-key not found"**: Create the Modal secret with your API key
-- **"model not found"**: Verify `ANTHROPIC_MODEL_ID` is correct
-- **Empty minutes**: Check Modal logs for API errors
+### Voice Cloning
 
-### Image Generation
-
-The service includes **AI-powered image generation** using Black Forest Labs' FLUX.1-schnell model. This feature generates images from text prompts with fast inference times.
+Uses Qwen3-TTS (1.7B params, 24kHz) for voice cloning with zero-shot voice transfer.
 
 **How it works:**
-1. **User submits prompt**: Text description of desired image (max 500 characters)
-2. **Validation**: Prompt length and image dimensions are validated (512-1024px)
-3. **GPU processing**: FLUX.1-schnell generates image on Modal GPU (L4)
-4. **Caching**: Generated image is cached server-side with session ID
-5. **Retrieval**: Frontend fetches image using session ID
-6. **Display**: Image shown in dedicated tab with download option
+1. User uploads reference audio (3s–5min) + transcription text + target text
+2. FastAPI validates and preprocesses reference audio to 24kHz mono WAV
+3. Qwen3TTSVoiceCloner on Modal GPU generates audio with cloned voice
+4. Generated audio cached with session ID for playback/download
 
-**Configuration** (in `modal_app/app.py` - embedded config at top of file):
+**Two modes in the API:**
+- **Single-shot** (`POST /api/voice-clone`): Upload reference + generate in one call. Supports `tts_model` param.
+- **Saved voice** (`POST /api/synthesize`): Use a previously saved voice profile by `voice_id`.
+
+**Configuration** (in `config.py`):
 ```python
-IMAGE_GENERATION_MODEL = "black-forest-labs/FLUX.1-schnell"
-IMAGE_GPU_TYPE = "L4"  # GPU type for generation
-IMAGE_MEMORY_MB = 16384  # 16GB memory allocation
-IMAGE_CONTAINER_IDLE_TIMEOUT = 120  # Keep container warm (seconds)
+ENABLE_VOICE_CLONING = True
+VOICE_CLONE_MIN_REF_DURATION = 3    # seconds
+VOICE_CLONE_MAX_REF_DURATION = 300  # seconds (5 minutes)
+VOICE_CLONE_MAX_TARGET_TEXT = 50000 # characters
+VOICE_CLONE_SAMPLE_RATE = 24000
+VOICE_CLONE_LANGUAGES = [
+    "English", "Spanish", "Chinese", "Japanese", "Korean",
+    "German", "French", "Russian", "Portuguese", "Italian"
+]
 ```
 
-**Feature flag and API settings** (in `config.py` - API layer):
-```python
-ENABLE_IMAGE_GENERATION = True  # Toggle feature on/off
-IMAGE_MAX_PROMPT_LENGTH = 500  # Maximum prompt length
-IMAGE_DEFAULT_WIDTH = 768  # Default image width
-IMAGE_DEFAULT_HEIGHT = 768  # Default image height
-IMAGE_CACHE_EXPIRY_HOURS = 1  # Image cache expiry
-```
+**Validation rules:**
+- Reference audio: 3s–300s duration, max 15MB file size
+- Target text: 1–50,000 characters
+- Reference text: cannot be empty
+- Language: must be in `VOICE_CLONE_LANGUAGES` list
 
-**Modal Secret Setup** (required):
-```bash
-# Create the HuggingFace token secret in Modal (for gated model access)
-py -m modal secret create hf-token HF_TOKEN=hf_...
-```
+### Saved Voices
 
-**API endpoints:**
-- `POST /api/generate-image`: Generate image from prompt
-  - Parameters: `prompt` (required), `width` (512-1024), `height` (512-1024)
-  - Returns: `ImageGenerationResponse` with `image_session_id`
-- `GET /api/image/{session_id}`: Retrieve generated image as PNG
-
-**Key features:**
-- **Fast inference**: FLUX.1-schnell optimized for 4-step generation (~3-5 seconds)
-- **Memory efficient**: Sequential CPU offload reduces VRAM usage
-- **Flexible dimensions**: 512-1024px width/height (multiple of 8 recommended)
-- **Session-based**: Images cached for 1 hour, retrieved via session ID
-- **Graceful errors**: Clear error messages for invalid prompts or generation failures
-
-**Performance considerations:**
-- Cold start: ~30-60 seconds to download model and initialize
-- Warm container: ~3-5 seconds per image generation
-- Memory: Uses ~12-14GB VRAM with CPU offload enabled
-- Model size: ~12GB (cached in Modal volume at `/models`)
-
-**Troubleshooting:**
-- **"hf-token not found"**: Create the Modal secret with your HuggingFace token
-- **"Image generation service unavailable"**: Ensure Modal app is deployed
-- **Out of memory**: Reduce image dimensions or enable CPU offload (already enabled by default)
-- **Slow generation**: First request triggers cold start; subsequent requests faster
-
-### Saved Voices (Voice Cloning)
-
-The service supports **persistent voice storage** for voice cloning. Users can save reference audio + transcription as a "voice profile" and reuse it later without re-uploading the audio.
-
-**How it works:**
-1. **Create voice profile**: User uploads reference audio (3-60s) + transcription + name
-2. **Save to Modal Volume**: Audio and metadata stored persistently in `/models/voices/`
-3. **List saved voices**: Frontend displays all saved voices with name, language, and preview
-4. **Synthesize with saved voice**: User selects voice + enters target text → generates audio
-5. **Delete voice**: Remove voice profile from storage
+Persistent voice storage on Modal Volume. Users save reference audio + transcription as a "voice profile" for reuse.
 
 **Storage Structure** (Modal Volume at `/models/voices/`):
 ```
 /voices/
-  ├── index.json              # List of all voices (id, name, language, created_at)
+  ├── index.json              # List of all voices (id, name, language, ref_text, created_at)
   └── {voice_id}/
       ├── ref_audio.wav       # Reference audio (24kHz mono WAV)
       └── metadata.json       # Full metadata (ref_text, language, etc.)
@@ -463,53 +480,96 @@ The service supports **persistent voice storage** for voice cloning. Users can s
 
 **API Endpoints:**
 - `GET /api/voices`: List all saved voices
-  - Returns: `SavedVoiceListResponse` with array of voices
-- `POST /api/voices`: Save a new voice
-  - Parameters: `name`, `ref_audio` (file), `ref_text`, `language`
-  - Returns: `SaveVoiceResponse` with `voice_id`
+- `POST /api/voices`: Save new voice (params: `name`, `ref_audio`, `ref_text`, `language`)
 - `DELETE /api/voices/{voice_id}`: Delete a saved voice
-  - Returns: `{ success: true }`
-- `POST /api/synthesize`: Synthesize audio with a saved voice
-  - Parameters: `voice_id`, `target_text`
-  - Returns: `SynthesizeResponse` with `audio_session_id`
+- `POST /api/synthesize`: Synthesize with saved voice (params: `voice_id`, `target_text`)
 
-**Configuration** (in `modal_app/app.py` - embedded config at top of file):
-```python
-VOICES_INDEX_FILE = "index.json"
-MAX_SAVED_VOICES = 50  # Maximum number of saved voices
-TTS_CONTAINER_IDLE_TIMEOUT = 120  # Container warm timeout
-```
-
-**Key features:**
-- **Persistent storage**: Voices survive container restarts and redeploys
-- **Shared access**: All users see the same voices (no authentication)
-- **Quick synthesis**: No need to re-upload reference audio each time
-- **Metadata preserved**: Language, transcription text stored with voice
+**Constraints:**
+- Voice names: max 50 characters, must be unique (case-insensitive)
+- Max saved voices: 50 (configurable via `MAX_SAVED_VOICES`)
+- Volume commits after every write operation
 
 **Frontend UI:**
 - Voice Clone section has two tabs: "Voces Guardadas" and "Nueva Voz"
 - Saved voices displayed as selectable cards with name, language, date
-- "Guardar Voz" button saves current voice profile after entering a name
+- "Guardar Voz" button saves current voice profile
 - Delete button removes voice from storage
 
-**Troubleshooting:**
-- **Voices not loading**: Ensure Modal app is deployed with VoiceStorage class
-- **Save failed**: Check if MAX_SAVED_VOICES limit reached (default 50)
-- **Duplicate name error**: Voice names must be unique (case-insensitive)
+### Image Generation
+
+Uses FLUX.1-schnell for fast text-to-image generation.
+
+**How it works:**
+1. User submits text prompt (max 500 chars) + dimensions (512–1024px)
+2. FLUX.1-schnell generates image on Modal L4 GPU with 4 inference steps
+3. Image cached as PNG with session ID
+4. Frontend retrieves and displays image
+
+**Configuration** (in `modal_app/app.py`):
+```python
+IMAGE_GENERATION_MODEL = "black-forest-labs/FLUX.1-schnell"
+IMAGE_GPU_TYPE = "L4"
+IMAGE_MEMORY_MB = 16384  # 16GB
+IMAGE_CONTAINER_IDLE_TIMEOUT = 120
+```
+
+**API settings** (in `config.py`):
+```python
+ENABLE_IMAGE_GENERATION = True
+IMAGE_MAX_PROMPT_LENGTH = 500
+IMAGE_DEFAULT_WIDTH = 768
+IMAGE_DEFAULT_HEIGHT = 768
+IMAGE_NUM_INFERENCE_STEPS = 4
+IMAGE_GUIDANCE_SCALE = 0.0  # Required for schnell mode
+IMAGE_CACHE_EXPIRY_HOURS = 1
+```
+
+**Modal Secret** (required):
+```bash
+py -m modal secret create hf-token HF_TOKEN=hf_...
+```
+
+**Performance:**
+- Cold start: ~30-60s to download model
+- Warm container: ~3-5s per image
+- Memory: ~12-14GB VRAM with CPU offload
+- Model: ~12GB (cached in Modal volume)
+- `max_sequence_length=128` used to save memory
+
+### Audio Player
+
+Integrated audio player for listening to uploaded audio alongside transcription.
+
+**Implementation:**
+- Each transcription generates UUID session ID
+- Original uploaded audio cached in-memory for 1 hour (`audio_cache` dict)
+- `/api/audio/{session_id}` serves cached audio in original format
+- Automatic cleanup of expired entries
+- Voice clone output also cached via same mechanism (`audio/wav` content type)
+
+**Note**: In-memory cache suitable for low-traffic. For production, consider Redis or persistent store.
 
 ### Cost Optimization
 
-GPU costs are ~$0.006 per minute of audio for transcription, ~$0.01-0.02 per image generation. Optimization strategies:
-- **Parakeet TDT 0.6B** is much smaller than previous models (0.6B vs 2.6B params) = faster & cheaper
-- `MODAL_CONTAINER_IDLE_TIMEOUT` keeps containers warm to reduce cold starts (20-30s)
+| Feature | Cost |
+|---------|------|
+| Transcription | ~$0.006 per minute of audio |
+| Speaker Diarization | Included (same GPU) |
+| Meeting Minutes | ~$0.001 per request (Haiku API) |
+| Voice Cloning | ~$0.01-0.02 per synthesis |
+| Image Generation | ~$0.01-0.02 per image |
+
+Strategies:
+- **Parakeet TDT 0.6B**: 4.3x smaller than previous model = faster & cheaper
+- `MODAL_CONTAINER_IDLE_TIMEOUT` keeps containers warm (default 120s)
 - Audio preprocessing happens locally to minimize GPU time
-- **Memory snapshots** are enabled by default for 85-90% faster cold starts (see `ENABLE_GPU_MEMORY_SNAPSHOT` in `modal_app/app.py`)
-- **FLUX.1-schnell** uses only 4 inference steps (vs 20-50 for other models) = faster & cheaper
-- Image generation uses sequential CPU offload to reduce VRAM requirements
+- **GPU memory snapshots** enabled for 85-90% faster cold starts
+- **FLUX.1-schnell** uses only 4 inference steps (vs 20-50 for other models)
+- Sequential CPU offload for image generation reduces VRAM requirements
 
 ## Configuration Changes
 
-**Important**: Modal-specific settings are embedded directly in `modal_app/app.py` (not imported from config.py) to avoid import issues in Modal containers. When changing Modal settings, edit the constants at the top of `modal_app/app.py`.
+**Important**: Modal-specific settings are embedded directly in `modal_app/app.py` (not imported from config.py) to avoid import issues in Modal containers. When changing Modal settings, edit the constants at the top of `modal_app/app.py` AND update `config.py` for API-layer consistency.
 
 ### Changing the STT Model or GPU Type
 
@@ -520,7 +580,7 @@ MODAL_GPU_TYPE = "L4"    # Options: L4, A10G, T4
 SAMPLE_RATE = 16000      # Must match model's native sample rate
 ```
 
-Then redeploy Modal: `py -m modal deploy modal_app/app.py`
+Then redeploy: `py -m modal deploy modal_app/app.py`
 
 ### Adjusting Silence Detection
 
@@ -530,91 +590,105 @@ SILENCE_THRESHOLD_DB = -40    # -50 (very conservative) to -30 (very sensitive)
 SILENCE_MIN_LENGTH_MS = 700   # 300ms (granular) to 1500ms (conservative)
 ```
 
-Redeploy Modal: `py -m modal deploy modal_app/app.py`
+Redeploy: `py -m modal deploy modal_app/app.py`
+
+### Adding a New TTS Model
+
+1. Add entry to `TTS_MODELS` dict in both `config.py` and `modal_app/app.py`
+2. Create a new container image with required dependencies
+3. Create a new Modal class with `generate_voice_clone()` method
+4. Add model selection logic in `api/main.py` voice-clone endpoint
+5. Redeploy: `py -m modal deploy modal_app/app.py`
 
 ## Dependencies
 
 **System requirements**:
-- Python 3.12+ (Modal container uses Python 3.12)
-- [uv](https://github.com/astral-sh/uv) - Fast Python package installer and runner
+- Python 3.12+ (Modal containers use Python 3.12)
+- [uv](https://github.com/astral-sh/uv) - Fast Python package installer
 - FFmpeg (must be installed locally for audio processing)
 - Modal account (free tier available)
 
-**Critical Python packages**:
-- `modal`: Serverless GPU infrastructure
-- `fastapi` + `uvicorn`: Web framework and ASGI server
-- **`nemo_toolkit[asr]==2.3.0`**: NVIDIA NeMo framework for ASR (includes PyTorch & torchaudio)
-- `pydub`: Silence detection for progressive streaming
-- `numpy<2`: Required for NeMo compatibility
-- `ffmpeg-python`: Audio preprocessing (runs locally)
-- `sse-starlette`: Server-Sent Events support
-- **`scikit-learn>=1.3.0`**: Spectral clustering for speaker diarization
-- **`soundfile>=0.12.1`**: Audio file I/O for diarization
-- **`anthropic>=0.40.0`**: Anthropic Claude API for meeting minutes generation
-- **`diffusers>=0.30.0`**: HuggingFace diffusers for FLUX.1-schnell image generation
-- **`accelerate>=0.30.0`**: Model acceleration and memory optimization
+**Local Python packages** (requirements.txt):
+- `modal>=1.3.0`: Serverless GPU infrastructure
+- `fastapi>=0.128.0` + `uvicorn>=0.40.0`: Web framework and ASGI server
+- `nemo_toolkit[asr]==2.3.0`: NVIDIA NeMo for ASR (includes PyTorch & torchaudio)
+- `numpy>=1.24.0,<2`: Required for NeMo compatibility
+- `hf_transfer==0.1.9` + `huggingface-hub>=0.36.0`: Fast model downloads
+- `ffmpeg-python>=0.2.0`: Audio preprocessing
+- `pydub>=0.25.1`: Silence detection for streaming
+- `python-multipart>=0.0.21`: File upload handling
+- `sse-starlette>=3.1.2`: Server-Sent Events
+- `aiofiles>=25.1.0`: Async file I/O
+- `anthropic>=0.40.0`: Claude API for meeting minutes
+- `pydantic>=2.12.0`: Request/response models
+- `python-dotenv>=1.2.0`: Environment variable management
 
-**Modal Container Image**:
-- Base: `nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04`
-- Python: 3.12
-- GPU libraries: CUDA 12.8, cuDNN
+**Modal Container packages** (installed only in containers, not locally):
+- `stt_image`: nemo_toolkit, cuda-python, pydub, scikit-learn, soundfile
+- `qwen_tts_image`: qwen-tts, torch, transformers, soundfile
+- `flux_image`: torch, diffusers, transformers, accelerate, sentencepiece, protobuf
+- `anthropic_image`: anthropic
+
+**Modal Container Images**:
+- **stt_image**: `nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04` + Python 3.12 + NeMo + FFmpeg
+- **qwen_tts_image**: `nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04` + Python 3.12 + qwen-tts + FFmpeg + libsndfile
+- **flux_image**: `nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04` + Python 3.12 + diffusers
+- **anthropic_image**: `debian_slim` + Python 3.12 + anthropic (no GPU)
 
 ## Troubleshooting
 
 **"Modal service unavailable"**: The Modal app isn't deployed. Run `py -m modal deploy modal_app/app.py`.
 
-**Slow first request**: Cold start takes 30-60s to download model and spin up GPU. Memory snapshots are enabled by default in `modal_app/app.py`:
+**Slow first request**: Cold start takes 30-60s. Memory snapshots are enabled by default:
 ```python
 ENABLE_CPU_MEMORY_SNAPSHOT = True
-ENABLE_GPU_MEMORY_SNAPSHOT = True  # Experimental, 85-90% faster cold starts
+ENABLE_GPU_MEMORY_SNAPSHOT = True  # 85-90% faster cold starts
 ```
 
 **Audio validation errors**: Check that FFmpeg is installed locally (`ffmpeg -version`). The API server needs FFmpeg to preprocess audio.
 
-**GPU out of memory**: Parakeet TDT 0.6B needs ~3-4GB VRAM (much less than previous models). FLUX.1-schnell needs ~12-14GB VRAM with CPU offload. L4 (24GB VRAM) handles both comfortably.
+**GPU out of memory**: Parakeet TDT 0.6B needs ~3-4GB VRAM. FLUX.1-schnell needs ~12-14GB with CPU offload. Qwen3-TTS needs ~8GB. L4 (24GB VRAM) handles all comfortably.
 
-**Too many/few segments in streaming**: Adjust silence detection parameters in `modal_app/app.py`:
-- Too many segments: Increase `SILENCE_THRESHOLD_DB` and `SILENCE_MIN_LENGTH_MS`
-- Too few segments: Decrease `SILENCE_THRESHOLD_DB` and `SILENCE_MIN_LENGTH_MS`
+**Too many/few segments in streaming**: Adjust silence detection in `modal_app/app.py`:
+- Too many: Increase `SILENCE_THRESHOLD_DB` and `SILENCE_MIN_LENGTH_MS`
+- Too few: Decrease both values
 
-**NeMo verbose logs**: The `NoStdStreams` context manager in `modal_app/app.py` suppresses NeMo's stdout/stderr during transcription. If you need to debug, temporarily remove the `with NoStdStreams():` context.
+**NeMo verbose logs**: `NoStdStreams` context manager in `modal_app/app.py` suppresses stdout/stderr. To debug, temporarily remove `with NoStdStreams():`.
 
-**Speaker diarization not working**: Check these common issues:
-- Ensure `ENABLE_SPEAKER_DIARIZATION = True` in `config.py` (API layer feature flag)
-- Check Modal logs for diarization errors: `py -m modal app logs transcodio-app`
-- Diarization requires at least ~5-10 seconds of audio with distinct speakers
-- Single-speaker audio will show "Speaker 1" for all segments (this is expected)
-- If diarization fails, transcription still completes (it's non-blocking)
+**Speaker diarization not working**:
+- Check `ENABLE_SPEAKER_DIARIZATION = True` in `config.py`
+- Check Modal logs: `py -m modal app logs transcodio-app`
+- Needs ≥5-10s of audio with distinct speakers
+- Single-speaker audio shows "Speaker 1" for all segments (expected)
+- Non-blocking: if diarization fails, transcription still completes
 
 **Audio player not loading**:
-- Check that the audio session ID is being returned in the `complete` event
-- Verify the `/api/audio/{session_id}` endpoint is accessible
-- Audio cache expires after 1 hour - if playback fails, the session may have expired
-- Check browser console for CORS or network errors
+- Check audio session ID in `complete` event
+- Verify `/api/audio/{session_id}` accessible
+- Cache expires after 1 hour
+- Check browser console for CORS errors
 
 **Meeting minutes not generating**:
-- Ensure Modal secret exists: `py -m modal secret list` should show `anthropic-api-key`
-- Create the secret if missing: `py -m modal secret create anthropic-api-key ANTHROPIC_API_KEY=sk-ant-...`
-- Check `ENABLE_MEETING_MINUTES = True` in `config.py` (API layer feature flag)
-- Verify API key is valid and has credits
-- Check Modal logs for API errors: `py -m modal app logs transcodio-app`
+- Check Modal secret: `py -m modal secret list` should show `anthropic-api-key`
+- Create if missing: `py -m modal secret create anthropic-api-key ANTHROPIC_API_KEY=sk-ant-...`
+- Check `ENABLE_MEETING_MINUTES = True` in `config.py`
+- Check Modal logs for API errors
 
 **Image generation not working**:
-- Ensure Modal secret exists: `py -m modal secret list` should show `hf-token`
-- Create the secret if missing: `py -m modal secret create hf-token HF_TOKEN=hf_...`
-- Check `ENABLE_IMAGE_GENERATION = True` in `config.py` (API layer feature flag)
-- Verify HuggingFace token has access to FLUX.1-schnell (may require accepting model terms)
-- Check Modal logs for errors: `py -m modal app logs transcodio-app`
-- First request may timeout due to cold start - retry after a few minutes
+- Check Modal secret: `py -m modal secret list` should show `hf-token`
+- Create if missing: `py -m modal secret create hf-token HF_TOKEN=hf_...`
+- Check `ENABLE_IMAGE_GENERATION = True` in `config.py`
+- HuggingFace token needs access to FLUX.1-schnell (may require accepting model terms)
+- First request may timeout due to cold start
 
-## Model Comparison
+**Voice cloning not working**:
+- Check `ENABLE_VOICE_CLONING = True` in `config.py`
+- Ensure Modal app deployed with `Qwen3TTSVoiceCloner` and `VoiceStorage` classes
+- Reference audio must be 3s–300s, max 15MB
+- Check Modal logs: `py -m modal app logs transcodio-app`
 
-| Feature | Previous (Kyutai STT 2.6B) | Current (Parakeet TDT 0.6B v3) |
-|---------|---------------------------|-------------------------------|
-| Framework | HuggingFace Transformers | NVIDIA NeMo |
-| Parameters | 2.6B | 0.6B (4.3x smaller) |
-| Sample Rate | 24kHz | 16kHz |
-| VRAM Usage | ~12-15GB | ~3-4GB |
-| Streaming | Fake (single segment) | Real (silence-based) |
-| Speed | Baseline | ~2-3x faster |
-| Accuracy | High | High (comparable) |
+**Saved voices not loading**:
+- Ensure `VoiceStorage` class is deployed
+- Check if `MAX_SAVED_VOICES` limit reached (default 50)
+- Voice names must be unique (case-insensitive)
+- Modal Volume must be accessible at `/models`
