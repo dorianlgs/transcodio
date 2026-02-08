@@ -1,3 +1,389 @@
+// ============================================
+// i18n System
+// ============================================
+
+const translations = {
+    en: {
+        // Mode buttons
+        'mode.transcribe': 'Transcribe',
+        'mode.voice_clone': 'Clone Voice',
+        'mode.image_gen': 'Generate Image',
+
+        // Upload section
+        'upload.title': 'Drag your audio file here',
+        'upload.subtitle': 'or click to select',
+        'upload.file_info': 'Supports MP3, WAV, M4A, FLAC, OGG \u2022 Max 100MB \u2022 Up to 60 minutes',
+        'upload.identify_speakers': 'Identify speakers',
+        'upload.generate_minutes': 'Generate meeting minutes',
+
+        // Processing section
+        'processing.title': 'Transcribing your audio...',
+        'processing.uploading': 'Uploading file...',
+        'processing.starting': 'Starting transcription...',
+        'processing.transcribing': 'Transcribing audio...',
+
+        // Results section
+        'results.title': 'Transcription Results',
+        'results.new_transcription': 'New Transcription',
+        'results.tab_transcription': 'Transcription',
+        'results.tab_minutes': 'Minutes',
+
+        // Minutes section
+        'minutes.title': 'Meeting Minutes',
+        'minutes.download': 'Download Minutes',
+        'minutes.loading': 'Generating meeting minutes...',
+        'minutes.executive_summary': 'Executive Summary',
+        'minutes.key_points': 'Key Discussion Points',
+        'minutes.decisions': 'Decisions Made',
+        'minutes.action_items': 'Action Items',
+        'minutes.participants': 'Participants Mentioned',
+        'minutes.no_summary': 'No summary available.',
+        'minutes.no_key_points': 'No key points identified.',
+        'minutes.no_decisions': 'No decisions recorded.',
+        'minutes.no_task': 'No task specified',
+        'minutes.assignee_label': 'Assignee:',
+        'minutes.unassigned': 'Unassigned',
+        'minutes.date_label': 'Date:',
+        'minutes.date_tbd': 'TBD',
+        'minutes.no_actions': 'No pending actions identified.',
+        'minutes.no_participants': 'No participants mentioned by name.',
+        'minutes.could_not_generate': 'Could not generate minutes. ',
+        'minutes.download_header': 'MEETING MINUTES',
+        'minutes.download_executive_summary': 'EXECUTIVE SUMMARY',
+        'minutes.download_key_points': 'KEY DISCUSSION POINTS',
+        'minutes.download_decisions': 'DECISIONS MADE',
+        'minutes.download_actions': 'ACTION ITEMS',
+        'minutes.download_participants': 'PARTICIPANTS MENTIONED',
+
+        // Voice clone section
+        'voice.title': 'Clone Voice',
+        'voice.subtitle': 'Use a saved voice or create a new one',
+        'voice.saved_tab': 'Saved Voices',
+        'voice.new_tab': 'New Voice',
+        'voice.select_voice': 'Select a voice',
+        'voice.loading': 'Loading voices...',
+        'voice.no_voices': 'No saved voices.',
+        'voice.create_new': 'Create New Voice',
+        'voice.target_label': 'Text to Synthesize (max. 50000 characters)',
+        'voice.target_placeholder': 'Write the text you want to generate with the selected voice...',
+        'voice.synthesize': 'Synthesize',
+        'voice.ref_audio_label': 'Reference Audio (3-30 seconds)',
+        'voice.upload_tab': 'Upload File',
+        'voice.record_tab': 'Record',
+        'voice.upload_drag': 'Drag or click to upload',
+        'voice.ref_text_label': 'Reference Audio Transcription',
+        'voice.ref_text_placeholder': 'Write exactly what the reference audio says...',
+        'voice.new_target_label': 'Text to Synthesize (max. 50000 characters)',
+        'voice.new_target_placeholder': 'Write the text you want to generate with the cloned voice...',
+        'voice.model_label': 'TTS Model',
+        'voice.model_qwen': 'Qwen3-TTS (Fast, 1.7B)',
+        'voice.model_hint': 'Fast and good quality for most cases',
+        'voice.language_label': 'Language',
+        'voice.name_label': 'Voice Name (for saving)',
+        'voice.name_placeholder': 'E.g.: My voice, John\'s voice...',
+        'voice.generate': 'Generate Voice',
+        'voice.save': 'Save Voice',
+        'voice.processing_title': 'Generating cloned voice...',
+        'voice.processing_subtitle': 'This may take a few seconds',
+        'voice.result_title': 'Generated Voice',
+        'voice.download_wav': 'Download WAV',
+        'voice.new_clone': 'New Clone',
+
+        // Language options
+        'lang.spanish': 'Spanish',
+        'lang.english': 'English',
+        'lang.chinese': 'Chinese',
+        'lang.japanese': 'Japanese',
+        'lang.korean': 'Korean',
+        'lang.german': 'German',
+        'lang.french': 'French',
+        'lang.russian': 'Russian',
+        'lang.portuguese': 'Portuguese',
+        'lang.italian': 'Italian',
+
+        // Image generation section
+        'image.title': 'Generate Image',
+        'image.subtitle': 'Describe the image you want to create with text',
+        'image.prompt_label': 'Image description (max. 500 characters)',
+        'image.prompt_placeholder': 'Describe the image you want to generate. For example: A futuristic landscape with crystal skyscrapers at sunset...',
+        'image.dimensions': 'Dimensions',
+        'image.width': 'Width',
+        'image.height': 'Height',
+        'image.generate': 'Generate Image',
+        'image.processing_title': 'Generating image...',
+        'image.processing_subtitle': 'This may take a few seconds',
+        'image.result_title': 'Generated Image',
+        'image.download_png': 'Download PNG',
+        'image.new_image': 'New Image',
+        'image.alt': 'Generated image',
+
+        // Footer
+        'footer.developed_by': 'Developed by',
+
+        // Toast messages
+        'toast.audio_load_error': 'Could not load audio file',
+        'toast.invalid_audio': 'Please upload a valid audio file (MP3, WAV, M4A, FLAC, OGG, MP4)',
+        'toast.file_too_large': 'File exceeds 100MB limit',
+        'toast.speakers_done': 'Speaker identification completed',
+        'toast.transcription_done': 'Transcription completed!',
+        'toast.minutes_done': 'Minutes generated!',
+        'toast.minutes_error': 'Error generating minutes',
+        'toast.downloaded': 'Downloaded!',
+        'toast.no_transcription_data': 'No transcription data available',
+        'toast.srt_downloaded': 'SRT downloaded!',
+        'toast.vtt_downloaded': 'VTT downloaded!',
+        'toast.no_minutes': 'No minutes available',
+        'toast.minutes_downloaded': 'Minutes downloaded!',
+        'toast.ref_audio_invalid': 'Please upload a valid audio file',
+        'toast.ref_audio_too_large': 'File is too large. Max 15MB.',
+        'toast.no_ref_audio': 'Please upload or record a reference audio',
+        'toast.no_ref_text': 'Please write the reference audio transcription',
+        'toast.no_target_text': 'Please write the text to synthesize',
+        'toast.target_too_long': 'Text to synthesize cannot exceed 50000 characters',
+        'toast.voice_generated': 'Voice generated successfully!',
+        'toast.voice_gen_error': 'Error generating voice',
+        'toast.no_audio_download': 'No audio to download',
+        'toast.no_image_prompt': 'Please write an image description',
+        'toast.prompt_too_long': 'Description cannot exceed 500 characters',
+        'toast.image_generated': 'Image generated successfully!',
+        'toast.image_gen_error': 'Error generating image',
+        'toast.no_image_download': 'No image to download',
+        'toast.mic_error': 'Could not access microphone',
+        'toast.select_voice': 'Please select a voice',
+        'toast.synth_error': 'Error synthesizing',
+        'toast.audio_generated': 'Audio generated successfully!',
+        'toast.voice_name_required': 'Please enter a name for the voice',
+        'toast.voice_name_too_long': 'Name cannot exceed 50 characters',
+        'toast.voice_saved': 'Voice saved successfully!',
+        'toast.voice_save_error': 'Error saving voice',
+        'toast.voice_deleted': 'Voice deleted',
+        'toast.voice_delete_error': 'Error deleting voice',
+        'toast.voices_load_error': 'Error loading voices',
+        'toast.voices_timeout': 'Timeout loading voices. Service may be starting.',
+        'toast.voices_load_failed': 'Could not load saved voices.',
+
+        // Confirm dialogs
+        'confirm.delete_voice': 'Are you sure you want to delete this voice?',
+
+        // Misc
+        'misc.retry': 'Retry',
+        'misc.remove': 'Remove',
+        'misc.delete_voice': 'Delete voice',
+        'misc.no_audio_session': 'No audio session ID provided, cannot load audio',
+    },
+    es: {
+        // Mode buttons
+        'mode.transcribe': 'Transcribir',
+        'mode.voice_clone': 'Clonar Voz',
+        'mode.image_gen': 'Generar Imagen',
+
+        // Upload section
+        'upload.title': 'Arrastra tu archivo de audio aqu\u00ed',
+        'upload.subtitle': 'o haz clic para seleccionar',
+        'upload.file_info': 'Soporta MP3, WAV, M4A, FLAC, OGG \u2022 M\u00e1x 100MB \u2022 Hasta 60 minutos',
+        'upload.identify_speakers': 'Identificar hablantes',
+        'upload.generate_minutes': 'Generar minuta de reuni\u00f3n',
+
+        // Processing section
+        'processing.title': 'Transcribiendo tu audio...',
+        'processing.uploading': 'Subiendo archivo...',
+        'processing.starting': 'Iniciando transcripci\u00f3n...',
+        'processing.transcribing': 'Transcribiendo audio...',
+
+        // Results section
+        'results.title': 'Resultados de Transcripci\u00f3n',
+        'results.new_transcription': 'Nueva Transcripci\u00f3n',
+        'results.tab_transcription': 'Transcripci\u00f3n',
+        'results.tab_minutes': 'Minuta',
+
+        // Minutes section
+        'minutes.title': 'Minuta de Reuni\u00f3n',
+        'minutes.download': 'Descargar Minuta',
+        'minutes.loading': 'Generando minuta de reuni\u00f3n...',
+        'minutes.executive_summary': 'Resumen Ejecutivo',
+        'minutes.key_points': 'Puntos Clave Discutidos',
+        'minutes.decisions': 'Decisiones Tomadas',
+        'minutes.action_items': 'Acciones Pendientes',
+        'minutes.participants': 'Participantes Mencionados',
+        'minutes.no_summary': 'No hay resumen disponible.',
+        'minutes.no_key_points': 'No se identificaron puntos clave.',
+        'minutes.no_decisions': 'No se registraron decisiones.',
+        'minutes.no_task': 'Sin tarea especificada',
+        'minutes.assignee_label': 'Responsable:',
+        'minutes.unassigned': 'Sin asignar',
+        'minutes.date_label': 'Fecha:',
+        'minutes.date_tbd': 'Por definir',
+        'minutes.no_actions': 'No se identificaron acciones pendientes.',
+        'minutes.no_participants': 'No se mencionaron participantes por nombre.',
+        'minutes.could_not_generate': 'No se pudo generar la minuta. ',
+        'minutes.download_header': 'MINUTA DE REUNI\u00d3N',
+        'minutes.download_executive_summary': 'RESUMEN EJECUTIVO',
+        'minutes.download_key_points': 'PUNTOS CLAVE DISCUTIDOS',
+        'minutes.download_decisions': 'DECISIONES TOMADAS',
+        'minutes.download_actions': 'ACCIONES PENDIENTES',
+        'minutes.download_participants': 'PARTICIPANTES MENCIONADOS',
+
+        // Voice clone section
+        'voice.title': 'Clonar Voz',
+        'voice.subtitle': 'Usa una voz guardada o crea una nueva',
+        'voice.saved_tab': 'Voces Guardadas',
+        'voice.new_tab': 'Nueva Voz',
+        'voice.select_voice': 'Selecciona una voz',
+        'voice.loading': 'Cargando voces...',
+        'voice.no_voices': 'No hay voces guardadas.',
+        'voice.create_new': 'Crear Nueva Voz',
+        'voice.target_label': 'Texto a Sintetizar (max. 50000 caracteres)',
+        'voice.target_placeholder': 'Escribe el texto que quieres generar con la voz seleccionada...',
+        'voice.synthesize': 'Sintetizar',
+        'voice.ref_audio_label': 'Audio de Referencia (3-30 segundos)',
+        'voice.upload_tab': 'Subir Archivo',
+        'voice.record_tab': 'Grabar',
+        'voice.upload_drag': 'Arrastra o haz clic para subir',
+        'voice.ref_text_label': 'Transcripci\u00f3n del Audio de Referencia',
+        'voice.ref_text_placeholder': 'Escribe exactamente lo que dice el audio de referencia...',
+        'voice.new_target_label': 'Texto a Sintetizar (max. 50000 caracteres)',
+        'voice.new_target_placeholder': 'Escribe el texto que quieres generar con la voz clonada...',
+        'voice.model_label': 'Modelo TTS',
+        'voice.model_qwen': 'Qwen3-TTS (R\u00e1pido, 1.7B)',
+        'voice.model_hint': 'R\u00e1pido y buena calidad para la mayor\u00eda de casos',
+        'voice.language_label': 'Idioma',
+        'voice.name_label': 'Nombre de la Voz (para guardar)',
+        'voice.name_placeholder': 'Ej: Mi voz, Voz de Juan...',
+        'voice.generate': 'Generar Voz',
+        'voice.save': 'Guardar Voz',
+        'voice.processing_title': 'Generando voz clonada...',
+        'voice.processing_subtitle': 'Esto puede tardar unos segundos',
+        'voice.result_title': 'Voz Generada',
+        'voice.download_wav': 'Descargar WAV',
+        'voice.new_clone': 'Nueva Clonaci\u00f3n',
+
+        // Language options
+        'lang.spanish': 'Espa\u00f1ol',
+        'lang.english': 'Ingl\u00e9s',
+        'lang.chinese': 'Chino',
+        'lang.japanese': 'Japon\u00e9s',
+        'lang.korean': 'Coreano',
+        'lang.german': 'Alem\u00e1n',
+        'lang.french': 'Franc\u00e9s',
+        'lang.russian': 'Ruso',
+        'lang.portuguese': 'Portugu\u00e9s',
+        'lang.italian': 'Italiano',
+
+        // Image generation section
+        'image.title': 'Generar Imagen',
+        'image.subtitle': 'Describe la imagen que deseas crear con texto',
+        'image.prompt_label': 'Descripci\u00f3n de la imagen (max. 500 caracteres)',
+        'image.prompt_placeholder': 'Describe la imagen que quieres generar. Por ejemplo: Un paisaje futurista con rascacielos de cristal al atardecer...',
+        'image.dimensions': 'Dimensiones',
+        'image.width': 'Ancho',
+        'image.height': 'Alto',
+        'image.generate': 'Generar Imagen',
+        'image.processing_title': 'Generando imagen...',
+        'image.processing_subtitle': 'Esto puede tardar unos segundos',
+        'image.result_title': 'Imagen Generada',
+        'image.download_png': 'Descargar PNG',
+        'image.new_image': 'Nueva Imagen',
+        'image.alt': 'Imagen generada',
+
+        // Footer
+        'footer.developed_by': 'Desarrollado por',
+
+        // Toast messages
+        'toast.audio_load_error': 'No se pudo cargar el archivo de audio',
+        'toast.invalid_audio': 'Por favor sube un archivo de audio v\u00e1lido (MP3, WAV, M4A, FLAC, OGG, MP4)',
+        'toast.file_too_large': 'El archivo excede el l\u00edmite de 100MB',
+        'toast.speakers_done': 'Identificaci\u00f3n de hablantes completada',
+        'toast.transcription_done': 'Transcripci\u00f3n completada!',
+        'toast.minutes_done': 'Minuta generada!',
+        'toast.minutes_error': 'Error al generar la minuta',
+        'toast.downloaded': 'Descargado!',
+        'toast.no_transcription_data': 'No hay datos de transcripci\u00f3n disponibles',
+        'toast.srt_downloaded': 'SRT descargado!',
+        'toast.vtt_downloaded': 'VTT descargado!',
+        'toast.no_minutes': 'No hay minuta disponible',
+        'toast.minutes_downloaded': 'Minuta descargada!',
+        'toast.ref_audio_invalid': 'Por favor sube un archivo de audio v\u00e1lido',
+        'toast.ref_audio_too_large': 'El archivo es demasiado grande. M\u00e1ximo 15MB.',
+        'toast.no_ref_audio': 'Por favor sube o graba un audio de referencia',
+        'toast.no_ref_text': 'Por favor escribe la transcripci\u00f3n del audio de referencia',
+        'toast.no_target_text': 'Por favor escribe el texto a sintetizar',
+        'toast.target_too_long': 'El texto a sintetizar no puede exceder 50000 caracteres',
+        'toast.voice_generated': 'Voz generada exitosamente!',
+        'toast.voice_gen_error': 'Error al generar la voz',
+        'toast.no_audio_download': 'No hay audio para descargar',
+        'toast.no_image_prompt': 'Por favor escribe una descripci\u00f3n de la imagen',
+        'toast.prompt_too_long': 'La descripci\u00f3n no puede exceder 500 caracteres',
+        'toast.image_generated': 'Imagen generada exitosamente!',
+        'toast.image_gen_error': 'Error al generar la imagen',
+        'toast.no_image_download': 'No hay imagen para descargar',
+        'toast.mic_error': 'No se pudo acceder al micr\u00f3fono',
+        'toast.select_voice': 'Por favor selecciona una voz',
+        'toast.synth_error': 'Error al sintetizar',
+        'toast.audio_generated': 'Audio generado exitosamente!',
+        'toast.voice_name_required': 'Por favor ingresa un nombre para la voz',
+        'toast.voice_name_too_long': 'El nombre no puede exceder 50 caracteres',
+        'toast.voice_saved': 'Voz guardada exitosamente!',
+        'toast.voice_save_error': 'Error al guardar la voz',
+        'toast.voice_deleted': 'Voz eliminada',
+        'toast.voice_delete_error': 'Error al eliminar la voz',
+        'toast.voices_load_error': 'Error al cargar voces',
+        'toast.voices_timeout': 'Timeout al cargar voces. El servicio puede estar iniciando.',
+        'toast.voices_load_failed': 'No se pudieron cargar las voces guardadas.',
+
+        // Confirm dialogs
+        'confirm.delete_voice': '\u00bfEst\u00e1s seguro de eliminar esta voz?',
+
+        // Misc
+        'misc.retry': 'Reintentar',
+        'misc.remove': 'Eliminar',
+        'misc.delete_voice': 'Eliminar voz',
+        'misc.no_audio_session': 'No se proporcion\u00f3 ID de sesi\u00f3n de audio, no se puede cargar el audio',
+    }
+};
+
+let currentLanguage = localStorage.getItem('transcodio-lang') || 'en';
+
+function t(key) {
+    const lang = translations[currentLanguage] || translations.en;
+    return lang[key] || translations.en[key] || key;
+}
+
+function applyTranslations() {
+    // Text content
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        el.textContent = t(el.dataset.i18n);
+    });
+    // Placeholders
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        el.placeholder = t(el.dataset.i18nPlaceholder);
+    });
+    // Alt text
+    document.querySelectorAll('[data-i18n-alt]').forEach(el => {
+        el.alt = t(el.dataset.i18nAlt);
+    });
+    // Title attributes
+    document.querySelectorAll('[data-i18n-title]').forEach(el => {
+        el.title = t(el.dataset.i18nTitle);
+    });
+    // Update html lang attribute
+    document.documentElement.lang = currentLanguage;
+    // Update language toggle button text
+    const langToggle = document.getElementById('langToggle');
+    if (langToggle) {
+        langToggle.textContent = currentLanguage === 'en' ? 'ES' : 'EN';
+    }
+}
+
+function setLanguage(lang) {
+    currentLanguage = lang;
+    localStorage.setItem('transcodio-lang', lang);
+    applyTranslations();
+    // Update date formatting locale
+    if (savedVoices.length > 0) {
+        renderSavedVoices();
+    }
+}
+
 // DOM Elements
 const uploadSection = document.getElementById('uploadSection');
 const processingSection = document.getElementById('processingSection');
@@ -123,6 +509,7 @@ let selectedVoiceId = null;
 // Initialize
 function init() {
     setupEventListeners();
+    applyTranslations();
     // Don't load voices on init - will load when user switches to voice clone mode
 }
 
