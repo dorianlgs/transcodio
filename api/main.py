@@ -1,5 +1,6 @@
 """FastAPI application for transcription service."""
 
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -7,11 +8,16 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, Response
+from fastapi.security import APIKeyHeader
+from starlette.middleware.base import BaseHTTPMiddleware
 from sse_starlette.sse import EventSourceResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -29,6 +35,71 @@ from api.models import (
 )
 from api.streaming import transcription_event_stream
 from utils.audio import validate_audio_file, AudioValidationError
+
+# --- Rate Limiter ---
+limiter = Limiter(key_func=get_remote_address)
+
+# --- API Key Authentication ---
+API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+# UUID format regex for validation
+UUID_PATTERN = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+
+def _sanitize_filename(filename: str) -> str:
+    """Sanitize a filename for use in Content-Disposition headers."""
+    if not filename:
+        return "audio"
+    # Extract just the basename (no path components)
+    name = Path(filename).name
+    # Remove control characters, quotes, semicolons, and newlines
+    name = re.sub(r'[\x00-\x1f\x7f";\r\n\\]', '', name)
+    # Limit length
+    if len(name) > 100:
+        name = name[:100]
+    return name or "audio"
+
+def _safe_content_type(filename: str) -> str:
+    """Map filename extension to a known safe MIME type."""
+    ext = Path(filename).suffix.lower().lstrip(".")
+    return config.SAFE_AUDIO_MIME_TYPES.get(ext, "application/octet-stream")
+
+def _validate_uuid(value: str, name: str = "ID") -> None:
+    """Validate that a string is a valid UUID format."""
+    if not UUID_PATTERN.match(value):
+        raise HTTPException(status_code=400, detail=f"Invalid {name} format")
+
+async def verify_api_key(request: Request):
+    """Verify API key if configured. Skip for public routes."""
+    # No auth required if API_KEY is not configured (dev mode)
+    if not config.API_KEY:
+        return
+    # Public routes that don't require auth
+    public_paths = {"/", "/health", "/docs", "/openapi.json"}
+    if request.url.path in public_paths or request.url.path.startswith("/static"):
+        return
+    api_key = request.headers.get("X-API-Key")
+    if not api_key or api_key != config.API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+# --- Security Headers Middleware ---
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' blob: data:; "
+            "media-src 'self' blob:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'"
+        )
+        return response
+
 
 # Simple in-memory cache for audio (session_id -> (audio_bytes, content_type, filename, expiry_time))
 audio_cache = {}
@@ -57,13 +128,27 @@ app = FastAPI(
     description=config.API_DESCRIPTION,
 )
 
+# Attach rate limiter state
+app.state.limiter = limiter
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return Response(
+        content='{"detail": "Rate limit exceeded. Please try again later."}',
+        status_code=429,
+        media_type="application/json",
+    )
+
+# Add security headers middleware (outermost — runs on every response)
+app.add_middleware(SecurityHeadersMiddleware)
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
 # Mount static files
@@ -94,7 +179,7 @@ async def health_check():
 
 
 @app.get("/api/audio/{session_id}")
-async def get_audio(session_id: str):
+async def get_audio(request: Request, session_id: str):
     """
     Retrieve original audio file by session ID.
 
@@ -107,6 +192,9 @@ async def get_audio(session_id: str):
     Raises:
         HTTPException: If session ID is invalid or expired
     """
+    await verify_api_key(request)
+    _validate_uuid(session_id, "session ID")
+
     # Clean up expired entries first
     cleanup_expired_audio()
 
@@ -116,21 +204,26 @@ async def get_audio(session_id: str):
             detail="Audio session not found or expired"
         )
 
-    audio_bytes, content_type, filename, expiry = audio_cache[session_id]
+    audio_bytes, _content_type, filename, expiry = audio_cache[session_id]
 
-    # Return audio file with appropriate headers and original content type
+    # Use safe MIME type derived from extension, not user-supplied content_type
+    safe_filename = _sanitize_filename(filename)
+    safe_mime = _safe_content_type(safe_filename)
+
     return Response(
         content=audio_bytes,
-        media_type=content_type,
+        media_type=safe_mime,
         headers={
-            "Content-Disposition": f"inline; filename={filename}",
+            "Content-Disposition": f'inline; filename="{safe_filename}"',
             "Accept-Ranges": "bytes",
         }
     )
 
 
 @app.post("/api/transcribe", response_model=TranscriptionResponse)
+@limiter.limit(config.RATE_LIMIT_TRANSCRIBE)
 async def transcribe_audio(
+    request: Request,
     file: UploadFile = File(..., description="Audio file to transcribe"),
 ):
     """
@@ -145,6 +238,7 @@ async def transcribe_audio(
     Raises:
         HTTPException: If validation fails or transcription errors
     """
+    await verify_api_key(request)
     try:
         # Read file
         audio_bytes = await file.read()
@@ -171,7 +265,7 @@ async def transcribe_audio(
         except Exception as e:
             raise HTTPException(
                 status_code=503,
-                detail=f"Modal service unavailable: {str(e)}. Make sure the Modal app is deployed.",
+                detail="Transcription service unavailable. Please try again later.",
             )
 
         # Call Modal transcription
@@ -182,7 +276,7 @@ async def transcribe_audio(
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=f"Transcription failed: {str(e)}",
+                detail="Transcription failed. Please try again.",
             )
 
     except HTTPException:
@@ -190,12 +284,14 @@ async def transcribe_audio(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Unexpected error: {str(e)}",
+            detail="An unexpected error occurred.",
         )
 
 
 @app.post("/api/transcribe/stream")
+@limiter.limit(config.RATE_LIMIT_TRANSCRIBE)
 async def transcribe_audio_stream(
+    request: Request,
     file: UploadFile = File(..., description="Audio file to transcribe"),
     enable_diarization: bool = Form(default=False, description="Enable speaker diarization"),
     enable_minutes: bool = Form(default=False, description="Generate meeting minutes"),
@@ -214,6 +310,7 @@ async def transcribe_audio_stream(
     Raises:
         HTTPException: If validation fails or transcription errors
     """
+    await verify_api_key(request)
     try:
         # Read file
         audio_bytes = await file.read()
@@ -232,12 +329,13 @@ async def transcribe_audio_stream(
 
         # Generate session ID and cache the ORIGINAL audio file
         session_id = str(uuid.uuid4())
+        safe_filename = _sanitize_filename(file.filename)
         # Cache for 1 hour - store original audio for playback
         expiry_time = datetime.now() + timedelta(hours=1)
         audio_cache[session_id] = (
             audio_bytes,  # Original uploaded file
-            file.content_type or "application/octet-stream",  # Original content type
-            file.filename or "audio",  # Original filename
+            _safe_content_type(safe_filename),  # Safe MIME type from extension
+            safe_filename,  # Sanitized filename
             expiry_time
         )
         # Clean up expired entries
@@ -254,7 +352,7 @@ async def transcribe_audio_stream(
         except Exception as e:
             raise HTTPException(
                 status_code=503,
-                detail=f"Modal service unavailable: {str(e)}. Make sure the Modal app is deployed.",
+                detail="Transcription service unavailable. Please try again later.",
             )
 
         # Create async generator for streaming
@@ -432,12 +530,14 @@ async def transcribe_audio_stream(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Unexpected error: {str(e)}",
+            detail="An unexpected error occurred.",
         )
 
 
 @app.post("/api/voice-clone", response_model=VoiceCloneResponse)
+@limiter.limit(config.RATE_LIMIT_VOICE_CLONE)
 async def voice_clone(
+    request: Request,
     ref_audio: UploadFile = File(..., description="Reference audio file (3-30 seconds)"),
     ref_text: str = Form(..., description="Transcription of the reference audio"),
     target_text: str = Form(..., description="Text to synthesize with cloned voice"),
@@ -460,6 +560,7 @@ async def voice_clone(
     Raises:
         HTTPException: If validation fails or generation errors
     """
+    await verify_api_key(request)
     # Check if voice cloning is enabled
     if not config.ENABLE_VOICE_CLONING:
         raise HTTPException(
@@ -553,7 +654,7 @@ async def voice_clone(
         except Exception as e:
             raise HTTPException(
                 status_code=503,
-                detail=f"TTS service unavailable: {str(e)}. Make sure the Modal app is deployed.",
+                detail="Voice cloning service unavailable. Please try again later.",
             )
 
         # Generate voice clone
@@ -595,7 +696,7 @@ async def voice_clone(
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=f"Voice cloning failed: {str(e)}",
+                detail="Voice cloning failed. Please try again.",
             )
 
     except HTTPException:
@@ -603,18 +704,20 @@ async def voice_clone(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Unexpected error: {str(e)}",
+            detail="An unexpected error occurred.",
         )
 
 
 @app.get("/api/voices", response_model=SavedVoiceListResponse)
-async def list_voices():
+@limiter.limit(config.RATE_LIMIT_DEFAULT)
+async def list_voices(request: Request):
     """
     List all saved voices.
 
     Returns:
         SavedVoiceListResponse with list of saved voices
     """
+    await verify_api_key(request)
     if not config.ENABLE_VOICE_CLONING:
         raise HTTPException(status_code=503, detail="Voice cloning is disabled")
 
@@ -628,12 +731,14 @@ async def list_voices():
     except Exception as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Voice storage service unavailable: {str(e)}"
+            detail="Voice storage service unavailable. Please try again later."
         )
 
 
 @app.post("/api/voices", response_model=SaveVoiceResponse)
+@limiter.limit(config.RATE_LIMIT_DEFAULT)
 async def save_voice(
+    request: Request,
     name: str = Form(..., description="Name for the voice"),
     ref_audio: UploadFile = File(..., description="Reference audio file (3-60 seconds)"),
     ref_text: str = Form(..., description="Transcription of the reference audio"),
@@ -651,6 +756,7 @@ async def save_voice(
     Returns:
         SaveVoiceResponse with voice_id
     """
+    await verify_api_key(request)
     if not config.ENABLE_VOICE_CLONING:
         raise HTTPException(status_code=503, detail="Voice cloning is disabled")
 
@@ -726,11 +832,12 @@ async def save_voice(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 @app.delete("/api/voices/{voice_id}")
-async def delete_voice(voice_id: str):
+@limiter.limit(config.RATE_LIMIT_DEFAULT)
+async def delete_voice(request: Request, voice_id: str):
     """
     Delete a saved voice.
 
@@ -740,6 +847,9 @@ async def delete_voice(voice_id: str):
     Returns:
         Success status
     """
+    await verify_api_key(request)
+    _validate_uuid(voice_id, "voice ID")
+
     if not config.ENABLE_VOICE_CLONING:
         raise HTTPException(status_code=503, detail="Voice cloning is disabled")
 
@@ -751,18 +861,20 @@ async def delete_voice(voice_id: str):
         result = storage.delete_voice.remote(voice_id)
 
         if not result.get("success"):
-            raise HTTPException(status_code=404, detail=result.get("error", "Voice not found"))
+            raise HTTPException(status_code=404, detail="Voice not found")
 
         return {"success": True}
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 @app.post("/api/synthesize", response_model=SynthesizeResponse)
+@limiter.limit(config.RATE_LIMIT_VOICE_CLONE)
 async def synthesize_with_voice(
+    request: Request,
     voice_id: str = Form(..., description="ID of the saved voice to use"),
     target_text: str = Form(..., description="Text to synthesize"),
 ):
@@ -776,6 +888,9 @@ async def synthesize_with_voice(
     Returns:
         SynthesizeResponse with audio_session_id for playback/download
     """
+    await verify_api_key(request)
+    _validate_uuid(voice_id, "voice ID")
+
     if not config.ENABLE_VOICE_CLONING:
         raise HTTPException(status_code=503, detail="Voice cloning is disabled")
 
@@ -839,11 +954,11 @@ async def synthesize_with_voice(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 @app.get("/api/image/{session_id}")
-async def get_image(session_id: str):
+async def get_image(request: Request, session_id: str):
     """
     Retrieve generated image by session ID.
 
@@ -856,6 +971,9 @@ async def get_image(session_id: str):
     Raises:
         HTTPException: If session ID is invalid or expired
     """
+    await verify_api_key(request)
+    _validate_uuid(session_id, "session ID")
+
     # Clean up expired entries first
     cleanup_expired_images()
 
@@ -871,13 +989,15 @@ async def get_image(session_id: str):
         content=image_bytes,
         media_type=content_type,
         headers={
-            "Content-Disposition": f"inline; filename=generated-image.png",
+            "Content-Disposition": 'inline; filename="generated-image.png"',
         }
     )
 
 
 @app.post("/api/generate-image", response_model=ImageGenerationResponse)
+@limiter.limit(config.RATE_LIMIT_IMAGE)
 async def generate_image(
+    request: Request,
     prompt: str = Form(..., description="Text prompt describing the image to generate"),
     width: int = Form(default=768, description="Image width (512-1024)"),
     height: int = Form(default=768, description="Image height (512-1024)"),
@@ -896,6 +1016,7 @@ async def generate_image(
     Raises:
         HTTPException: If validation fails or generation errors
     """
+    await verify_api_key(request)
     # Check if image generation is enabled
     if not config.ENABLE_IMAGE_GENERATION:
         raise HTTPException(
@@ -930,7 +1051,7 @@ async def generate_image(
         except Exception as e:
             raise HTTPException(
                 status_code=503,
-                detail=f"Image generation service unavailable: {str(e)}. Make sure the Modal app is deployed.",
+                detail="Image generation service unavailable. Please try again later.",
             )
 
         # Generate image
@@ -973,7 +1094,7 @@ async def generate_image(
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=f"Image generation failed: {str(e)}",
+                detail="Image generation failed. Please try again.",
             )
 
     except HTTPException:
@@ -981,7 +1102,7 @@ async def generate_image(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Unexpected error: {str(e)}",
+            detail="An unexpected error occurred.",
         )
 
 

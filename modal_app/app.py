@@ -697,6 +697,15 @@ class SpeakerDiarizerModel:
 class VoiceStorage:
     """Manage saved voices in Modal Volume."""
 
+    # UUID format regex for voice_id validation
+    _UUID_RE = __import__("re").compile(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    )
+
+    def _validate_voice_id(self, voice_id: str) -> bool:
+        """Validate voice_id is a proper UUID to prevent path traversal."""
+        return bool(self._UUID_RE.match(voice_id))
+
     def _get_voices_dir(self) -> Path:
         """Get the voices directory path."""
         voices_dir = Path("/models") / "voices"
@@ -730,8 +739,15 @@ class VoiceStorage:
     @modal.method()
     def get_voice(self, voice_id: str) -> Dict[str, Any]:
         """Get a voice by ID including audio bytes."""
+        if not self._validate_voice_id(voice_id):
+            return {"success": False, "error": "Invalid voice ID format"}
+
         voices_dir = self._get_voices_dir()
         voice_dir = voices_dir / voice_id
+
+        # Verify resolved path stays within voices_dir (defense in depth)
+        if not voice_dir.resolve().is_relative_to(voices_dir.resolve()):
+            return {"success": False, "error": "Invalid voice ID"}
 
         if not voice_dir.exists():
             return {"success": False, "error": "Voice not found"}
@@ -769,6 +785,9 @@ class VoiceStorage:
     ) -> Dict[str, Any]:
         """Save a new voice."""
         from datetime import datetime
+
+        if not self._validate_voice_id(voice_id):
+            return {"success": False, "error": "Invalid voice ID format"}
 
         # Check max voices limit
         index = self._load_index()
@@ -819,8 +838,15 @@ class VoiceStorage:
         """Delete a voice."""
         import shutil
 
+        if not self._validate_voice_id(voice_id):
+            return {"success": False, "error": "Invalid voice ID format"}
+
         voices_dir = self._get_voices_dir()
         voice_dir = voices_dir / voice_id
+
+        # Verify resolved path stays within voices_dir (defense in depth)
+        if not voice_dir.resolve().is_relative_to(voices_dir.resolve()):
+            return {"success": False, "error": "Invalid voice ID"}
 
         if not voice_dir.exists():
             return {"success": False, "error": "Voice not found"}

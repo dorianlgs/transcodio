@@ -20,6 +20,7 @@ Key features:
 - Support for multiple audio formats (MP3, WAV, M4A, FLAC, OGG, WebM, MP4)
 - Subtitle export (SRT/VTT formats) with speaker labels
 - **Internationalization (i18n)**: English/Spanish UI with language toggle, persisted via localStorage
+- **Security hardening**: API key authentication, rate limiting, CSP headers, path traversal protection, XSS prevention
 
 ## Architecture
 
@@ -52,7 +53,7 @@ Key implementation details:
 - **4 container images**: `stt_image` (NeMo + CUDA), `anthropic_image` (lightweight), `flux_image` (diffusers + CUDA), `qwen_tts_image` (qwen-tts + CUDA)
 - **ParakeetSTTModel**: Uses NeMo framework for ASR. Two methods: `transcribe()` and `transcribe_stream()`. Real streaming detects silence boundaries using pydub.
 - **SpeakerDiarizerModel**: Single-scale embedding extraction (1.5s windows), AgglomerativeClustering with cosine distance, complexity penalty (0.15/speaker)
-- **VoiceStorage**: Manages voice profiles on Modal Volume at `/models/voices/`. Methods: `list_voices()`, `get_voice()`, `save_voice()`, `delete_voice()`
+- **VoiceStorage**: Manages voice profiles on Modal Volume at `/models/voices/`. Methods: `list_voices()`, `get_voice()`, `save_voice()`, `delete_voice()`. All methods validate `voice_id` as UUID format and verify resolved paths stay within the voices directory (path traversal protection).
 - **Qwen3TTSVoiceCloner**: Loads `Qwen/Qwen3-TTS-12Hz-1.7B-Base` with bfloat16 on CUDA. Method: `generate_voice_clone(ref_audio_bytes, ref_text, target_text, language)`
 - **FluxImageGenerator**: FLUX.1-schnell with sequential CPU offload. Requires `hf-token` Modal secret. Method: `generate_image(prompt, width, height, num_inference_steps, guidance_scale)`
 - **MeetingMinutesGenerator**: Claude Haiku 4.5 API. Requires `anthropic-api-key` Modal secret. Spanish-language prompts with date awareness. Method: `generate_minutes(transcription, speakers)`
@@ -87,6 +88,8 @@ Key implementation details:
 - Meeting minutes run after completion, yields `minutes_ready` or `minutes_error` event
 - Voice clone endpoint supports model selection via `tts_model` param (currently only `qwen`)
 - Reference audio preprocessing converts to 24kHz mono WAV for TTS (vs 16kHz for STT)
+- **Security**: API key auth via `X-API-Key` header, rate limiting via `slowapi`, security response headers (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy), filename sanitization for Content-Disposition, UUID validation on all path parameters, generic error messages (no internal detail leakage)
+- **CORS**: Restricted to `GET`, `POST`, `DELETE` methods and `Content-Type`, `X-API-Key` headers only
 
 **api/models.py** — Pydantic response models:
 - `TranscriptionResponse`, `TranscriptionSegment`, `TranscriptionStreamEvent`
@@ -194,6 +197,17 @@ IMAGE_DEFAULT_HEIGHT = 768
 IMAGE_NUM_INFERENCE_STEPS = 4
 IMAGE_GUIDANCE_SCALE = 0.0
 IMAGE_CACHE_EXPIRY_HOURS = 1
+
+# Security
+API_KEY = os.getenv("TRANSCODIO_API_KEY", "")  # Set in production; empty = no auth (dev only)
+RATE_LIMIT_TRANSCRIBE = "5/minute"
+RATE_LIMIT_VOICE_CLONE = "10/minute"
+RATE_LIMIT_IMAGE = "10/minute"
+RATE_LIMIT_DEFAULT = "30/minute"
+SAFE_AUDIO_MIME_TYPES = {
+    "mp3": "audio/mpeg", "wav": "audio/wav", "m4a": "audio/mp4",
+    "flac": "audio/flac", "ogg": "audio/ogg", "webm": "audio/webm", "mp4": "video/mp4",
+}
 ```
 
 ## Common Commands
@@ -241,6 +255,7 @@ py -m modal run modal_app/app.py path/to/audio.mp3
 uv run transcribe_file.py path/to/audio.mp3
 
 # Test API endpoint (requires server running)
+# Note: Add -H "X-API-Key: YOUR_KEY" if TRANSCODIO_API_KEY is set
 curl -X POST "http://localhost:8000/api/transcribe" -F "file=@audio.mp3"
 
 # Test streaming endpoint
@@ -260,6 +275,9 @@ curl "http://localhost:8000/api/voices"
 curl -X POST "http://localhost:8000/api/generate-image" \
   -F "prompt=a beautiful sunset over mountains" \
   -F "width=768" -F "height=768"
+
+# Test with API key authentication (if TRANSCODIO_API_KEY is set)
+curl -H "X-API-Key: your-api-key" "http://localhost:8000/api/voices"
 ```
 
 ## Critical Implementation Details
@@ -578,6 +596,57 @@ Simple key-based i18n system with no external dependencies. Default language: En
 
 **Translation key naming convention**: `section.descriptor` (e.g., `voice.save`, `toast.downloaded`, `minutes.title`)
 
+### Security
+
+The application implements multiple layers of security hardening:
+
+**API Key Authentication** (`api/main.py`):
+- Configured via `TRANSCODIO_API_KEY` environment variable (in `config.py`)
+- When set, all `/api/*` endpoints require `X-API-Key` header
+- When empty (default for dev), authentication is disabled
+- Public routes (`/`, `/health`, `/static/*`) are always exempt
+- Function: `verify_api_key(request)` called at the start of every API endpoint
+
+**Rate Limiting** (`api/main.py`):
+- Uses `slowapi` library with per-IP rate limits
+- GPU-intensive endpoints: 5/min (transcribe), 10/min (voice-clone, image)
+- Read endpoints: 30/min (list voices, etc.)
+- Returns HTTP 429 when exceeded
+- Configured in `config.py`: `RATE_LIMIT_TRANSCRIBE`, `RATE_LIMIT_VOICE_CLONE`, `RATE_LIMIT_IMAGE`, `RATE_LIMIT_DEFAULT`
+
+**Security Response Headers** (`SecurityHeadersMiddleware` in `api/main.py`):
+- `Content-Security-Policy`: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'`
+- `X-Frame-Options: DENY` (clickjacking protection)
+- `X-Content-Type-Options: nosniff` (MIME sniffing protection)
+- `Referrer-Policy: strict-origin-when-cross-origin`
+
+**Path Traversal Protection** (`modal_app/app.py` VoiceStorage class):
+- All `voice_id` parameters validated as UUID format via regex (`_validate_voice_id()`)
+- Resolved paths verified to stay within `/models/voices/` directory (`is_relative_to()`)
+- Prevents attacks like `DELETE /api/voices/../../` that could delete model weights
+- UUID validation also enforced in `api/main.py` via `_validate_uuid()` for all path parameters
+
+**XSS Prevention** (`static/app.js`):
+- Meeting minutes action items use `textContent` and DOM element creation (not `innerHTML`) to render server data
+- Saved voices error handler uses `textContent` + `addEventListener` (not `innerHTML` + inline `onclick`)
+- All server-provided values in saved voices rendering are passed through `escapeHtml()` (including `voice.id`, `voice.language`)
+- `showToast()` uses `textContent` (safe by default)
+
+**Content-Type / Filename Sanitization** (`api/main.py`):
+- `_sanitize_filename()`: Strips path components, control characters, quotes, semicolons, newlines; limits to 100 chars
+- `_safe_content_type()`: Maps file extension to hardcoded safe MIME type (from `SAFE_AUDIO_MIME_TYPES` config) — never trusts user-supplied `Content-Type`
+- `Content-Disposition` headers use proper RFC 6266 quoting: `filename="sanitized_name.ext"`
+
+**Error Message Hardening** (`api/main.py`):
+- All error responses return generic messages (e.g., "An unexpected error occurred.") — no `str(e)` leakage
+- Internal details (Modal class names, stack traces, file paths) are not exposed to clients
+- Exceptions are logged server-side only
+
+**CORS** (`api/main.py`):
+- `allow_methods` restricted to `["GET", "POST", "DELETE"]` (not `["*"]`)
+- `allow_headers` restricted to `["Content-Type", "X-API-Key"]` (not `["*"]`)
+- Origins restricted to localhost variants (update for production)
+
 ### Cost Optimization
 
 | Feature | Cost |
@@ -649,6 +718,7 @@ Redeploy: `py -m modal deploy modal_app/app.py`
 - `sse-starlette>=3.1.2`: Server-Sent Events
 - `aiofiles>=25.1.0`: Async file I/O
 - `anthropic>=0.40.0`: Claude API for meeting minutes
+- `slowapi>=0.1.9`: Rate limiting for FastAPI
 - `pydantic>=2.12.0`: Request/response models
 - `python-dotenv>=1.2.0`: Environment variable management
 
@@ -665,6 +735,12 @@ Redeploy: `py -m modal deploy modal_app/app.py`
 - **anthropic_image**: `debian_slim` + Python 3.12 + anthropic (no GPU)
 
 ## Troubleshooting
+
+**"Invalid or missing API key" (401)**: Set the `X-API-Key` header in your request. The key must match the `TRANSCODIO_API_KEY` environment variable. If unset, authentication is disabled (dev mode).
+
+**"Rate limit exceeded" (429)**: You've exceeded the per-IP rate limit. Default limits: 5/min for transcription, 10/min for voice-clone and image generation, 30/min for other endpoints. Configurable in `config.py`.
+
+**"Invalid voice ID format" (400)**: The `voice_id` or `session_id` must be a valid UUID (e.g., `550e8400-e29b-41d4-a716-446655440000`). Path traversal attempts are blocked.
 
 **"Modal service unavailable"**: The Modal app isn't deployed. Run `py -m modal deploy modal_app/app.py`.
 

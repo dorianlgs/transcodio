@@ -162,6 +162,26 @@ IMAGE_NUM_INFERENCE_STEPS = 4  # Schnell optimized for 4 steps
 IMAGE_GUIDANCE_SCALE = 0.0
 IMAGE_CACHE_EXPIRY_HOURS = 1
 
+# Security
+API_KEY = os.getenv("TRANSCODIO_API_KEY", "")  # Set in production; empty = no auth (dev only)
+
+# Rate Limiting (requests per minute)
+RATE_LIMIT_TRANSCRIBE = "5/minute"
+RATE_LIMIT_VOICE_CLONE = "10/minute"
+RATE_LIMIT_IMAGE = "10/minute"
+RATE_LIMIT_DEFAULT = "30/minute"
+
+# Safe MIME types for serving cached audio (extension -> MIME type)
+SAFE_AUDIO_MIME_TYPES = {
+    "mp3": "audio/mpeg",
+    "wav": "audio/wav",
+    "m4a": "audio/mp4",
+    "flac": "audio/flac",
+    "ogg": "audio/ogg",
+    "webm": "audio/webm",
+    "mp4": "video/mp4",
+}
+
 # Environment variables
 ENV_MODE = os.getenv("ENV", "development")
 DEBUG = ENV_MODE == "development"

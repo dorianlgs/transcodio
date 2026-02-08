@@ -1118,14 +1118,45 @@ function displayMeetingMinutes(minutes) {
         minutes.action_items.forEach(item => {
             const li = document.createElement('li');
             li.className = 'action-item';
-            li.innerHTML = `
-                <div class="action-task">${item.task || t('minutes.no_task')}</div>
-                <div class="action-meta">
-                    <span class="action-label">${t('minutes.assignee_label')}</span> <span class="action-assignee">${item.assignee || t('minutes.unassigned')}</span>
-                    <span class="action-separator">|</span>
-                    <span class="action-label">${t('minutes.date_label')}</span> <span class="action-deadline">${item.deadline || t('minutes.date_tbd')}</span>
-                </div>
-            `;
+
+            const taskDiv = document.createElement('div');
+            taskDiv.className = 'action-task';
+            taskDiv.textContent = item.task || t('minutes.no_task');
+            li.appendChild(taskDiv);
+
+            const metaDiv = document.createElement('div');
+            metaDiv.className = 'action-meta';
+
+            const assigneeLabel = document.createElement('span');
+            assigneeLabel.className = 'action-label';
+            assigneeLabel.textContent = t('minutes.assignee_label');
+            metaDiv.appendChild(assigneeLabel);
+
+            metaDiv.appendChild(document.createTextNode(' '));
+
+            const assigneeValue = document.createElement('span');
+            assigneeValue.className = 'action-assignee';
+            assigneeValue.textContent = item.assignee || t('minutes.unassigned');
+            metaDiv.appendChild(assigneeValue);
+
+            const separator = document.createElement('span');
+            separator.className = 'action-separator';
+            separator.textContent = '|';
+            metaDiv.appendChild(separator);
+
+            const dateLabel = document.createElement('span');
+            dateLabel.className = 'action-label';
+            dateLabel.textContent = t('minutes.date_label');
+            metaDiv.appendChild(dateLabel);
+
+            metaDiv.appendChild(document.createTextNode(' '));
+
+            const deadlineValue = document.createElement('span');
+            deadlineValue.className = 'action-deadline';
+            deadlineValue.textContent = item.deadline || t('minutes.date_tbd');
+            metaDiv.appendChild(deadlineValue);
+
+            li.appendChild(metaDiv);
             minutesActions.appendChild(li);
         });
     } else {
@@ -1723,13 +1754,17 @@ async function loadSavedVoices() {
         }
 
         // Show error in the list area with retry button
-        savedVoicesList.innerHTML = `
-            <div class="error-message">
-                ${errorMsg}
-                <button class="btn btn-secondary retry-btn" onclick="loadSavedVoices()" style="margin-top: 0.5rem;">
-                    ${t('misc.retry')}
-                </button>
-            </div>`;
+        savedVoicesList.innerHTML = '';
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        errorDiv.textContent = errorMsg;
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'btn btn-secondary retry-btn';
+        retryBtn.style.marginTop = '0.5rem';
+        retryBtn.textContent = t('misc.retry');
+        retryBtn.addEventListener('click', loadSavedVoices);
+        errorDiv.appendChild(retryBtn);
+        savedVoicesList.appendChild(errorDiv);
 
         // Show the "create new voice" option even on error
         const msgElement = noVoicesMessage.querySelector('p');
@@ -1754,16 +1789,16 @@ function renderSavedVoices() {
 
     noVoicesMessage.classList.add('hidden');
     savedVoicesList.innerHTML = savedVoices.map(voice => `
-        <div class="saved-voice-item ${selectedVoiceId === voice.id ? 'selected' : ''}" data-voice-id="${voice.id}">
+        <div class="saved-voice-item ${selectedVoiceId === voice.id ? 'selected' : ''}" data-voice-id="${escapeHtml(voice.id)}">
             <div class="saved-voice-info">
                 <div class="saved-voice-name">${escapeHtml(voice.name)}</div>
                 <div class="saved-voice-meta">
-                    <span class="saved-voice-language">${voice.language}</span>
-                    <span class="saved-voice-date">${formatDate(voice.created_at)}</span>
+                    <span class="saved-voice-language">${escapeHtml(voice.language)}</span>
+                    <span class="saved-voice-date">${escapeHtml(formatDate(voice.created_at))}</span>
                 </div>
                 <div class="saved-voice-ref-text">"${escapeHtml(truncateText(voice.ref_text, 60))}"</div>
             </div>
-            <button class="btn-icon delete-voice-btn" title="${t('misc.delete_voice')}" data-voice-id="${voice.id}">
+            <button class="btn-icon delete-voice-btn" title="${t('misc.delete_voice')}" data-voice-id="${escapeHtml(voice.id)}">
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                     <path d="M3 5H15M6 5V4C6 3.45 6.45 3 7 3H11C11.55 3 12 3.45 12 4V5M7 8V13M11 8V13M4 5L5 15C5 15.55 5.45 16 6 16H12C12.55 16 13 15.55 13 15L14 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>

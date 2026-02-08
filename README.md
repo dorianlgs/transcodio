@@ -18,6 +18,7 @@ Transcodio is a production-ready platform powered by NVIDIA's Parakeet TDT 0.6B 
 - **Cost Effective**: ~$0.006 per minute of audio transcription on NVIDIA L4 GPUs
 - **10 Languages for TTS**: Spanish, English, Chinese, Japanese, Korean, German, French, Russian, Portuguese, Italian
 - **Multilingual UI**: English (default) and Spanish with one-click language toggle
+- **Security Hardened**: API key authentication, per-IP rate limiting, CSP headers, path traversal protection, XSS prevention
 
 ## Quick Start
 
@@ -55,6 +56,13 @@ py -m modal secret create anthropic-api-key ANTHROPIC_API_KEY=sk-ant-...
 
 # HuggingFace token (required for image generation)
 py -m modal secret create hf-token HF_TOKEN=hf_...
+```
+
+5. (Optional) Set API key for production:
+```bash
+# Set an API key to require authentication on all /api/* endpoints
+# When unset, authentication is disabled (development mode)
+export TRANSCODIO_API_KEY=your-secret-api-key
 ```
 
 ### Deployment
@@ -126,6 +134,10 @@ uv run transcribe_file.py --help
 ```
 
 ### API Endpoints
+
+> **Authentication:** If `TRANSCODIO_API_KEY` is set, add `-H "X-API-Key: YOUR_KEY"` to all requests.
+>
+> **Rate Limits:** Transcription: 5/min, Voice clone & Image gen: 10/min, Other: 30/min (per IP).
 
 #### Transcription
 
@@ -225,6 +237,9 @@ curl -X POST "http://localhost:8000/api/generate-image" \
           ▼
 ┌─────────────────────┐
 │      FastAPI        │
+│  API Key Auth       │
+│  Rate Limiting      │
+│  Security Headers   │
 │  Upload/Validation  │
 │  SSE Streaming      │
 │  Session Caching    │
@@ -249,6 +264,22 @@ curl -X POST "http://localhost:8000/api/generate-image" \
 │  └──────────────┘  └───────────────────────────┘ │
 └───────────────────────────────────────────────────┘
 ```
+
+## Security
+
+Transcodio includes multiple layers of security hardening:
+
+| Layer | Protection | Details |
+|-------|-----------|---------|
+| **Authentication** | API key via `X-API-Key` header | Set `TRANSCODIO_API_KEY` env var; disabled when empty (dev mode) |
+| **Rate Limiting** | Per-IP limits via `slowapi` | 5/min transcription, 10/min voice-clone & image, 30/min other |
+| **CSP** | Content Security Policy | `default-src 'self'`; blocks inline scripts, external resources |
+| **Clickjacking** | `X-Frame-Options: DENY` | Prevents embedding in iframes |
+| **MIME Sniffing** | `X-Content-Type-Options: nosniff` | Forces declared content type |
+| **Path Traversal** | UUID validation + path resolution | Blocks `../../` attacks on voice storage and cached files |
+| **XSS** | DOM-safe rendering | Server data rendered via `textContent`/`escapeHtml()`, not raw `innerHTML` |
+| **Header Injection** | Filename sanitization | Strips control chars; maps to safe MIME types |
+| **Error Hardening** | Generic error messages | Internal details never exposed to clients |
 
 ## Configuration
 
@@ -290,6 +321,13 @@ MAX_DURATION_SECONDS = 3600  # 60 minutes
 # Performance
 MODAL_CONTAINER_IDLE_TIMEOUT = 120
 ENABLE_GPU_MEMORY_SNAPSHOT = True  # 85-90% faster cold starts
+
+# Security
+API_KEY = os.getenv("TRANSCODIO_API_KEY", "")  # Empty = no auth (dev)
+RATE_LIMIT_TRANSCRIBE = "5/minute"
+RATE_LIMIT_VOICE_CLONE = "10/minute"
+RATE_LIMIT_IMAGE = "10/minute"
+RATE_LIMIT_DEFAULT = "30/minute"
 ```
 
 ## Supported Formats
@@ -317,7 +355,7 @@ transcodio/
 │   ├── app.py             # 6 Modal classes (STT, diarization, TTS, image gen, minutes, storage)
 │   └── image.py           # Image generation helper
 ├── api/
-│   ├── main.py            # FastAPI endpoints
+│   ├── main.py            # FastAPI endpoints + auth, rate limiting, security headers
 │   ├── models.py          # Pydantic response models
 │   └── streaming.py       # SSE streaming utilities
 ├── static/
@@ -334,6 +372,10 @@ transcodio/
 ```
 
 ## Troubleshooting
+
+**"Invalid or missing API key" (401)** — Set the `X-API-Key` header. If in development, ensure `TRANSCODIO_API_KEY` is not set (authentication is disabled when empty).
+
+**"Rate limit exceeded" (429)** — Wait and retry. Default limits: 5/min for transcription, 10/min for voice-clone/image, 30/min for other endpoints.
 
 **"Modal service unavailable"** — Deploy the Modal app first:
 ```bash

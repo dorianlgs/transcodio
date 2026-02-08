@@ -24,6 +24,9 @@ anthropic>=0.40.0
 # TTS (for voice cloning - installed in Modal container)
 # qwen-tts  # Not needed locally, only in Modal container
 
+# Security
+slowapi>=0.1.9
+
 # Utilities
 pydantic>=2.12.0
 python-dotenv>=1.2.0
