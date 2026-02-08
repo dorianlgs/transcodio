@@ -19,12 +19,13 @@ Key features:
 - Audio preprocessing and validation using FFmpeg
 - Support for multiple audio formats (MP3, WAV, M4A, FLAC, OGG, WebM, MP4)
 - Subtitle export (SRT/VTT formats) with speaker labels
+- **Internationalization (i18n)**: English/Spanish UI with language toggle, persisted via localStorage
 
 ## Architecture
 
 The application has a three-tier architecture:
 
-1. **Frontend (static/)**: Browser-based UI with three modes — Transcription, Voice Cloning, Image Generation
+1. **Frontend (static/)**: Browser-based UI with three modes — Transcription, Voice Cloning, Image Generation. Supports English (default) and Spanish via i18n system
 2. **API Layer (api/)**: FastAPI application handling uploads, validation, SSE streaming, and session caching
 3. **GPU Backend (modal_app/)**: Modal serverless functions with 6 classes across 4 container images
 
@@ -490,9 +491,9 @@ Persistent voice storage on Modal Volume. Users save reference audio + transcrip
 - Volume commits after every write operation
 
 **Frontend UI:**
-- Voice Clone section has two tabs: "Voces Guardadas" and "Nueva Voz"
+- Voice Clone section has two tabs: "Saved Voices" and "New Voice" (translated via i18n)
 - Saved voices displayed as selectable cards with name, language, date
-- "Guardar Voz" button saves current voice profile
+- "Save Voice" button saves current voice profile
 - Delete button removes voice from storage
 
 ### Image Generation
@@ -548,6 +549,34 @@ Integrated audio player for listening to uploaded audio alongside transcription.
 - Voice clone output also cached via same mechanism (`audio/wav` content type)
 
 **Note**: In-memory cache suitable for low-traffic. For production, consider Redis or persistent store.
+
+### Internationalization (i18n)
+
+Simple key-based i18n system with no external dependencies. Default language: English.
+
+**Implementation** (in `static/app.js`):
+- `translations` object at top of file with `en` and `es` keys containing ~100 translation strings each
+- `t(key)` function returns the translated string for the current language
+- `applyTranslations()` updates all DOM elements with `data-i18n` attributes
+- `setLanguage(lang)` switches language, persists to `localStorage`, and re-renders
+- Language preference stored in `localStorage` as `transcodio-lang`
+
+**HTML attributes** (in `static/index.html`):
+- `data-i18n="key"` — Translates element's `textContent`
+- `data-i18n-placeholder="key"` — Translates element's `placeholder` attribute
+- `data-i18n-alt="key"` — Translates element's `alt` attribute
+- `data-i18n-title="key"` — Translates element's `title` attribute
+
+**Language toggle**: `<button class="lang-toggle" id="langToggle">` in header, styled via `.lang-toggle` in `styles.css`. Displays "ES" when English is active (click to switch to Spanish) and "EN" when Spanish is active.
+
+**Dynamic strings**: All `showToast()` messages, `confirm()` dialogs, error messages, status text, and dynamically generated HTML use `t('key')` calls instead of hardcoded strings.
+
+**Adding a new language**:
+1. Add a new key (e.g., `fr`) to the `translations` object in `app.js` with all ~100 keys translated
+2. Update the language toggle logic in `setLanguage()` and `applyTranslations()` to cycle through languages or use a dropdown
+3. Update `formatDate()` to include the new locale
+
+**Translation key naming convention**: `section.descriptor` (e.g., `voice.save`, `toast.downloaded`, `minutes.title`)
 
 ### Cost Optimization
 

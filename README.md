@@ -17,6 +17,7 @@ Transcodio is a production-ready platform powered by NVIDIA's Parakeet TDT 0.6B 
 - **Subtitle Export**: Download transcriptions as SRT/VTT with speaker labels
 - **Cost Effective**: ~$0.006 per minute of audio transcription on NVIDIA L4 GPUs
 - **10 Languages for TTS**: Spanish, English, Chinese, Japanese, Korean, German, French, Russian, Portuguese, Italian
+- **Multilingual UI**: English (default) and Spanish with one-click language toggle
 
 ## Quick Start
 
@@ -82,7 +83,7 @@ uv run uvicorn api.main:app --reload
 
 ### Web Interface
 
-The UI has three modes:
+The UI has three modes, with English as the default language. Click the **ES/EN** button in the header to switch between English and Spanish (preference is saved across sessions).
 
 **Transcription**
 1. Drag and drop an audio file or click to browse
@@ -321,7 +322,7 @@ transcodio/
 │   └── streaming.py       # SSE streaming utilities
 ├── static/
 │   ├── index.html         # Web UI layout
-│   ├── app.js             # Frontend logic
+│   ├── app.js             # Frontend logic + i18n translations
 │   └── styles.css         # Styling
 ├── utils/
 │   └── audio.py           # Audio validation pipeline
