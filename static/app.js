@@ -531,7 +531,7 @@ function setupEventListeners() {
     });
     audioPlayer.addEventListener('error', (e) => {
         console.error('Audio player error:', e, audioPlayer.error);
-        showToast('No se pudo cargar el archivo de audio', 'error');
+        showToast(t('toast.audio_load_error'), 'error');
     });
 
     // Button clicks
@@ -596,6 +596,14 @@ function setupEventListeners() {
     savedVoiceTargetText.addEventListener('input', updateSavedVoiceCharCount);
     synthesizeBtn.addEventListener('click', synthesizeWithSavedVoice);
     saveVoiceBtn.addEventListener('click', saveVoice);
+
+    // Language toggle
+    const langToggle = document.getElementById('langToggle');
+    if (langToggle) {
+        langToggle.addEventListener('click', () => {
+            setLanguage(currentLanguage === 'en' ? 'es' : 'en');
+        });
+    }
 }
 
 // Tab switching function
@@ -650,7 +658,7 @@ async function processFile(file) {
 
     // Show processing section
     showSection('processing');
-    processingStatus.textContent = 'Uploading file...';
+    processingStatus.textContent = t('processing.uploading');
     progressFill.style.width = '10%';
 
     try {
@@ -678,14 +686,14 @@ function validateFile(file) {
     // Check file type
     const validTypes = ['audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/wave', 'audio/mp4', 'audio/x-m4a', 'audio/flac', 'audio/ogg', 'audio/webm', 'video/mp4'];
     if (!validTypes.includes(file.type) && !file.name.match(/\.(mp3|wav|m4a|flac|ogg|webm|mp4)$/i)) {
-        showToast('Por favor sube un archivo de audio válido (MP3, WAV, M4A, FLAC, OGG, MP4)', 'error');
+        showToast(t('toast.invalid_audio'), 'error');
         return false;
     }
 
     // Check file size (100MB max)
     const maxSize = 100 * 1024 * 1024;
     if (file.size > maxSize) {
-        showToast('El archivo excede el límite de 100MB', 'error');
+        showToast(t('toast.file_too_large'), 'error');
         return false;
     }
 
@@ -694,7 +702,7 @@ function validateFile(file) {
 
 // Transcription with Streaming
 async function transcribeWithStreaming(formData, enableDiarization = false, enableMinutes = false) {
-    processingStatus.textContent = 'Iniciando transcripción...';
+    processingStatus.textContent = t('processing.starting');
     progressFill.style.width = '20%';
 
     // Reset results
@@ -737,7 +745,7 @@ async function transcribeWithStreaming(formData, enableDiarization = false, enab
 
         // Keep processing section visible during streaming
         showSection('processing');
-        processingStatus.textContent = 'Transcribing...';
+        processingStatus.textContent = t('processing.transcribing');
 
         if (!response.body) {
             throw new Error('Response body is null');
@@ -813,7 +821,7 @@ function handleStreamEvent(eventType, data) {
             if (data.language) {
                 language.textContent = data.language.toUpperCase();
             }
-            processingStatus.textContent = 'Transcribiendo audio...';
+            processingStatus.textContent = t('processing.transcribing');
             progressFill.style.width = '40%';
             break;
 
@@ -828,7 +836,7 @@ function handleStreamEvent(eventType, data) {
         case 'speakers_ready':
             // Update segments with speaker labels
             updateSegmentsWithSpeakers(data.segments);
-            showToast('Identificación de hablantes completada', 'success');
+            showToast(t('toast.speakers_done'), 'success');
             break;
 
         case 'complete':
@@ -843,26 +851,26 @@ function handleStreamEvent(eventType, data) {
                 audioPlayer.src = audioURL;
                 audioPlayer.load(); // Force the browser to load the audio metadata
             } else {
-                console.warn('No se proporcionó ID de sesión de audio, no se puede cargar el audio');
+                console.warn(t('misc.no_audio_session'));
             }
 
             // Show results section now
             showSection('results');
-            showToast('Transcripción completada!', 'success');
+            showToast(t('toast.transcription_done'), 'success');
             break;
 
         case 'minutes_ready':
             // Display meeting minutes
             displayMeetingMinutes(data.minutes);
-            showToast('Minuta generada!', 'success');
+            showToast(t('toast.minutes_done'), 'success');
             break;
 
         case 'minutes_error':
             // Handle minutes generation error
             minutesLoading.classList.add('hidden');
             minutesContent.classList.remove('hidden');
-            minutesSummary.textContent = 'No se pudo generar la minuta. ' + (data.error || '');
-            showToast('Error al generar la minuta', 'error');
+            minutesSummary.textContent = t('minutes.could_not_generate') + (data.error || '');
+            showToast(t('toast.minutes_error'), 'error');
             break;
 
         case 'error':
@@ -986,7 +994,7 @@ function downloadTranscription() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('Descargado!', 'success');
+    showToast(t('toast.downloaded'), 'success');
 }
 
 // Format time for SRT (HH:MM:SS,mmm)
@@ -1028,7 +1036,7 @@ function generateVTT() {
 // Download SRT file
 function downloadSRT() {
     if (currentSegments.length === 0) {
-        showToast('No hay datos de transcripción disponibles', 'error');
+        showToast(t('toast.no_transcription_data'), 'error');
         return;
     }
     const srtContent = generateSRT();
@@ -1041,13 +1049,13 @@ function downloadSRT() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('SRT descargado!', 'success');
+    showToast(t('toast.srt_downloaded'), 'success');
 }
 
 // Download VTT file
 function downloadVTT() {
     if (currentSegments.length === 0) {
-        showToast('No hay datos de transcripción disponibles', 'error');
+        showToast(t('toast.no_transcription_data'), 'error');
         return;
     }
     const vttContent = generateVTT();
@@ -1060,7 +1068,7 @@ function downloadVTT() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('VTT descargado!', 'success');
+    showToast(t('toast.vtt_downloaded'), 'success');
 }
 
 // Display Meeting Minutes
@@ -1072,7 +1080,7 @@ function displayMeetingMinutes(minutes) {
     minutesContent.classList.remove('hidden');
 
     // Executive Summary
-    minutesSummary.textContent = minutes.executive_summary || 'No hay resumen disponible.';
+    minutesSummary.textContent = minutes.executive_summary || t('minutes.no_summary');
 
     // Key Discussion Points
     minutesKeyPoints.innerHTML = '';
@@ -1084,7 +1092,7 @@ function displayMeetingMinutes(minutes) {
         });
     } else {
         const li = document.createElement('li');
-        li.textContent = 'No se identificaron puntos clave.';
+        li.textContent = t('minutes.no_key_points');
         li.className = 'empty-item';
         minutesKeyPoints.appendChild(li);
     }
@@ -1099,7 +1107,7 @@ function displayMeetingMinutes(minutes) {
         });
     } else {
         const li = document.createElement('li');
-        li.textContent = 'No se registraron decisiones.';
+        li.textContent = t('minutes.no_decisions');
         li.className = 'empty-item';
         minutesDecisions.appendChild(li);
     }
@@ -1111,18 +1119,18 @@ function displayMeetingMinutes(minutes) {
             const li = document.createElement('li');
             li.className = 'action-item';
             li.innerHTML = `
-                <div class="action-task">${item.task || 'Sin tarea especificada'}</div>
+                <div class="action-task">${item.task || t('minutes.no_task')}</div>
                 <div class="action-meta">
-                    <span class="action-label">Responsable:</span> <span class="action-assignee">${item.assignee || 'Sin asignar'}</span>
+                    <span class="action-label">${t('minutes.assignee_label')}</span> <span class="action-assignee">${item.assignee || t('minutes.unassigned')}</span>
                     <span class="action-separator">|</span>
-                    <span class="action-label">Fecha:</span> <span class="action-deadline">${item.deadline || 'Por definir'}</span>
+                    <span class="action-label">${t('minutes.date_label')}</span> <span class="action-deadline">${item.deadline || t('minutes.date_tbd')}</span>
                 </div>
             `;
             minutesActions.appendChild(li);
         });
     } else {
         const li = document.createElement('li');
-        li.textContent = 'No se identificaron acciones pendientes.';
+        li.textContent = t('minutes.no_actions');
         li.className = 'empty-item';
         minutesActions.appendChild(li);
     }
@@ -1138,7 +1146,7 @@ function displayMeetingMinutes(minutes) {
         });
     } else {
         const span = document.createElement('span');
-        span.textContent = 'No se mencionaron participantes por nombre.';
+        span.textContent = t('minutes.no_participants');
         span.className = 'empty-item';
         minutesParticipants.appendChild(span);
     }
@@ -1147,70 +1155,70 @@ function displayMeetingMinutes(minutes) {
 // Download Meeting Minutes as TXT
 function downloadMinutes() {
     if (!currentMinutes) {
-        showToast('No hay minuta disponible', 'error');
+        showToast(t('toast.no_minutes'), 'error');
         return;
     }
 
-    let content = 'MINUTA DE REUNIÓN\n';
+    let content = t('minutes.download_header') + '\n';
     content += '='.repeat(50) + '\n\n';
 
-    content += 'RESUMEN EJECUTIVO\n';
+    content += t('minutes.download_executive_summary') + '\n';
     content += '-'.repeat(30) + '\n';
-    content += (currentMinutes.executive_summary || 'No hay resumen disponible.') + '\n\n';
+    content += (currentMinutes.executive_summary || t('minutes.no_summary')) + '\n\n';
 
-    content += 'PUNTOS CLAVE DISCUTIDOS\n';
+    content += t('minutes.download_key_points') + '\n';
     content += '-'.repeat(30) + '\n';
     if (currentMinutes.key_discussion_points && currentMinutes.key_discussion_points.length > 0) {
         currentMinutes.key_discussion_points.forEach((point, i) => {
             content += `${i + 1}. ${point}\n`;
         });
     } else {
-        content += 'No se identificaron puntos clave.\n';
+        content += t('minutes.no_key_points') + '\n';
     }
     content += '\n';
 
-    content += 'DECISIONES TOMADAS\n';
+    content += t('minutes.download_decisions') + '\n';
     content += '-'.repeat(30) + '\n';
     if (currentMinutes.decisions_made && currentMinutes.decisions_made.length > 0) {
         currentMinutes.decisions_made.forEach((decision, i) => {
             content += `${i + 1}. ${decision}\n`;
         });
     } else {
-        content += 'No se registraron decisiones.\n';
+        content += t('minutes.no_decisions') + '\n';
     }
     content += '\n';
 
-    content += 'ACCIONES PENDIENTES\n';
+    content += t('minutes.download_actions') + '\n';
     content += '-'.repeat(30) + '\n';
     if (currentMinutes.action_items && currentMinutes.action_items.length > 0) {
         currentMinutes.action_items.forEach((item, i) => {
-            content += `${i + 1}. ${item.task || 'Sin tarea especificada'}\n`;
-            content += `   - Responsable: ${item.assignee || 'Sin asignar'}\n`;
-            content += `   - Fecha: ${item.deadline || 'Por definir'}\n\n`;
+            content += `${i + 1}. ${item.task || t('minutes.no_task')}\n`;
+            content += `   - ${t('minutes.assignee_label')} ${item.assignee || t('minutes.unassigned')}\n`;
+            content += `   - ${t('minutes.date_label')} ${item.deadline || t('minutes.date_tbd')}\n\n`;
         });
     } else {
-        content += 'No se identificaron acciones pendientes.\n';
+        content += t('minutes.no_actions') + '\n';
     }
     content += '\n';
 
-    content += 'PARTICIPANTES MENCIONADOS\n';
+    content += t('minutes.download_participants') + '\n';
     content += '-'.repeat(30) + '\n';
     if (currentMinutes.participants_mentioned && currentMinutes.participants_mentioned.length > 0) {
         content += currentMinutes.participants_mentioned.join(', ') + '\n';
     } else {
-        content += 'No se mencionaron participantes por nombre.\n';
+        content += t('minutes.no_participants') + '\n';
     }
 
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `minuta-reunion-${Date.now()}.txt`;
+    a.download = `meeting-minutes-${Date.now()}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('Minuta descargada!', 'success');
+    showToast(t('toast.minutes_downloaded'), 'success');
 }
 
 function resetApp() {
@@ -1309,13 +1317,13 @@ function handleRefFileDrop(event) {
 function loadRefAudioFile(file) {
     // Validate file type
     if (!file.type.startsWith('audio/')) {
-        showToast('Por favor sube un archivo de audio válido', 'error');
+        showToast(t('toast.ref_audio_invalid'), 'error');
         return;
     }
 
     // Validate file size (max 15MB)
     if (file.size > 15 * 1024 * 1024) {
-        showToast('El archivo es demasiado grande. Máximo 15MB.', 'error');
+        showToast(t('toast.ref_audio_too_large'), 'error');
         return;
     }
 
@@ -1389,7 +1397,7 @@ async function startRecording() {
 
     } catch (error) {
         console.error('Recording error:', error);
-        showToast('No se pudo acceder al micrófono', 'error');
+        showToast(t('toast.mic_error'), 'error');
     }
 }
 
@@ -1417,7 +1425,7 @@ function updateCharCount() {
 
 // Update Model Hint
 function updateModelHint() {
-    modelHint.textContent = 'Rápido y buena calidad para la mayoría de casos.';
+    modelHint.textContent = t('voice.model_hint');
 }
 
 // Generate Voice Clone
@@ -1431,24 +1439,24 @@ async function generateVoiceClone() {
     }
 
     if (!audioToSend) {
-        showToast('Por favor sube o graba un audio de referencia', 'error');
+        showToast(t('toast.no_ref_audio'), 'error');
         return;
     }
 
     const refText = refTextInput.value.trim();
     if (!refText) {
-        showToast('Por favor escribe la transcripción del audio de referencia', 'error');
+        showToast(t('toast.no_ref_text'), 'error');
         return;
     }
 
     const targetText = targetTextInput.value.trim();
     if (!targetText) {
-        showToast('Por favor escribe el texto a sintetizar', 'error');
+        showToast(t('toast.no_target_text'), 'error');
         return;
     }
 
     if (targetText.length > 50000) {
-        showToast('El texto a sintetizar no puede exceder 50000 caracteres', 'error');
+        showToast(t('toast.target_too_long'), 'error');
         return;
     }
 
@@ -1475,11 +1483,11 @@ async function generateVoiceClone() {
         const result = await response.json();
 
         if (!response.ok) {
-            throw new Error(result.detail || 'Error al generar la voz');
+            throw new Error(result.detail || t('toast.voice_gen_error'));
         }
 
         if (!result.success) {
-            throw new Error(result.error || 'Error al generar la voz');
+            throw new Error(result.error || t('toast.voice_gen_error'));
         }
 
         // Show results
@@ -1490,7 +1498,7 @@ async function generateVoiceClone() {
         voiceCloneProcessing.classList.add('hidden');
         voiceCloneResults.classList.remove('hidden');
 
-        showToast('Voz generada exitosamente!', 'success');
+        showToast(t('toast.voice_generated'), 'success');
 
     } catch (error) {
         console.error('Voice clone error:', error);
@@ -1503,7 +1511,7 @@ async function generateVoiceClone() {
 // Download Generated Voice
 function downloadGeneratedVoice() {
     if (!generatedAudioSessionId) {
-        showToast('No hay audio para descargar', 'error');
+        showToast(t('toast.no_audio_download'), 'error');
         return;
     }
 
@@ -1513,7 +1521,7 @@ function downloadGeneratedVoice() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    showToast('Descargado!', 'success');
+    showToast(t('toast.downloaded'), 'success');
 }
 
 // Reset Voice Clone
@@ -1574,12 +1582,12 @@ async function generateImage() {
     const prompt = imagePromptInput.value.trim();
 
     if (!prompt) {
-        showToast('Por favor escribe una descripción de la imagen', 'error');
+        showToast(t('toast.no_image_prompt'), 'error');
         return;
     }
 
     if (prompt.length > 500) {
-        showToast('La descripción no puede exceder 500 caracteres', 'error');
+        showToast(t('toast.prompt_too_long'), 'error');
         return;
     }
 
@@ -1604,11 +1612,11 @@ async function generateImage() {
         const result = await response.json();
 
         if (!response.ok) {
-            throw new Error(result.detail || 'Error al generar la imagen');
+            throw new Error(result.detail || t('toast.image_gen_error'));
         }
 
         if (!result.success) {
-            throw new Error(result.error || 'Error al generar la imagen');
+            throw new Error(result.error || t('toast.image_gen_error'));
         }
 
         // Show results
@@ -1619,7 +1627,7 @@ async function generateImage() {
         imageGenProcessing.classList.add('hidden');
         imageGenResults.classList.remove('hidden');
 
-        showToast('Imagen generada exitosamente!', 'success');
+        showToast(t('toast.image_generated'), 'success');
 
     } catch (error) {
         console.error('Image generation error:', error);
@@ -1632,7 +1640,7 @@ async function generateImage() {
 // Download Generated Image
 function downloadGeneratedImage() {
     if (!generatedImageSessionId) {
-        showToast('No hay imagen para descargar', 'error');
+        showToast(t('toast.no_image_download'), 'error');
         return;
     }
 
@@ -1642,7 +1650,7 @@ function downloadGeneratedImage() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    showToast('Descargado!', 'success');
+    showToast(t('toast.downloaded'), 'success');
 }
 
 // Reset Image Generation
@@ -1683,7 +1691,7 @@ function switchVoiceMode(mode) {
 
 // Load saved voices from API
 async function loadSavedVoices() {
-    savedVoicesList.innerHTML = '<div class="loading-voices">Cargando voces...</div>';
+    savedVoicesList.innerHTML = `<div class="loading-voices">${t('voice.loading')}</div>`;
     noVoicesMessage.classList.add('hidden');
 
     try {
@@ -1707,9 +1715,9 @@ async function loadSavedVoices() {
 
     } catch (error) {
         console.error('Error loading voices:', error);
-        let errorMsg = 'Error al cargar voces';
+        let errorMsg = t('toast.voices_load_error');
         if (error.name === 'AbortError') {
-            errorMsg = 'Timeout al cargar voces. El servicio puede estar iniciando.';
+            errorMsg = t('toast.voices_timeout');
         } else if (error.message) {
             errorMsg = `Error: ${error.message}`;
         }
@@ -1719,14 +1727,14 @@ async function loadSavedVoices() {
             <div class="error-message">
                 ${errorMsg}
                 <button class="btn btn-secondary retry-btn" onclick="loadSavedVoices()" style="margin-top: 0.5rem;">
-                    Reintentar
+                    ${t('misc.retry')}
                 </button>
             </div>`;
 
         // Show the "create new voice" option even on error
         const msgElement = noVoicesMessage.querySelector('p');
         if (msgElement) {
-            msgElement.textContent = 'No se pudieron cargar las voces guardadas.';
+            msgElement.textContent = t('toast.voices_load_failed');
         }
         noVoicesMessage.classList.remove('hidden');
 
@@ -1755,7 +1763,7 @@ function renderSavedVoices() {
                 </div>
                 <div class="saved-voice-ref-text">"${escapeHtml(truncateText(voice.ref_text, 60))}"</div>
             </div>
-            <button class="btn-icon delete-voice-btn" title="Eliminar voz" data-voice-id="${voice.id}">
+            <button class="btn-icon delete-voice-btn" title="${t('misc.delete_voice')}" data-voice-id="${voice.id}">
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                     <path d="M3 5H15M6 5V4C6 3.45 6.45 3 7 3H11C11.55 3 12 3.45 12 4V5M7 8V13M11 8V13M4 5L5 15C5 15.55 5.45 16 6 16H12C12.55 16 13 15.55 13 15L14 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
@@ -1812,18 +1820,18 @@ function updateSavedVoiceCharCount() {
 // Synthesize with saved voice
 async function synthesizeWithSavedVoice() {
     if (!selectedVoiceId) {
-        showToast('Por favor selecciona una voz', 'error');
+        showToast(t('toast.select_voice'), 'error');
         return;
     }
 
     const targetText = savedVoiceTargetText.value.trim();
     if (!targetText) {
-        showToast('Por favor escribe el texto a sintetizar', 'error');
+        showToast(t('toast.no_target_text'), 'error');
         return;
     }
 
     if (targetText.length > 50000) {
-        showToast('El texto no puede exceder 50000 caracteres', 'error');
+        showToast(t('toast.target_too_long'), 'error');
         return;
     }
 
@@ -1844,11 +1852,11 @@ async function synthesizeWithSavedVoice() {
         const result = await response.json();
 
         if (!response.ok) {
-            throw new Error(result.detail || 'Error al sintetizar');
+            throw new Error(result.detail || t('toast.synth_error'));
         }
 
         if (!result.success) {
-            throw new Error(result.error || 'Error al sintetizar');
+            throw new Error(result.error || t('toast.synth_error'));
         }
 
         // Show results
@@ -1859,7 +1867,7 @@ async function synthesizeWithSavedVoice() {
         voiceCloneProcessing.classList.add('hidden');
         voiceCloneResults.classList.remove('hidden');
 
-        showToast('Audio generado exitosamente!', 'success');
+        showToast(t('toast.audio_generated'), 'success');
 
     } catch (error) {
         console.error('Synthesize error:', error);
@@ -1874,12 +1882,12 @@ async function saveVoice() {
     // Get voice name
     const voiceName = voiceNameInput.value.trim();
     if (!voiceName) {
-        showToast('Por favor ingresa un nombre para la voz', 'error');
+        showToast(t('toast.voice_name_required'), 'error');
         return;
     }
 
     if (voiceName.length > 50) {
-        showToast('El nombre no puede exceder 50 caracteres', 'error');
+        showToast(t('toast.voice_name_too_long'), 'error');
         return;
     }
 
@@ -1892,14 +1900,14 @@ async function saveVoice() {
     }
 
     if (!audioToSend) {
-        showToast('Por favor sube o graba un audio de referencia', 'error');
+        showToast(t('toast.no_ref_audio'), 'error');
         return;
     }
 
     // Get reference text
     const refText = refTextInput.value.trim();
     if (!refText) {
-        showToast('Por favor escribe la transcripción del audio de referencia', 'error');
+        showToast(t('toast.no_ref_text'), 'error');
         return;
     }
 
@@ -1924,14 +1932,14 @@ async function saveVoice() {
         const result = await response.json();
 
         if (!response.ok) {
-            throw new Error(result.detail || 'Error al guardar la voz');
+            throw new Error(result.detail || t('toast.voice_save_error'));
         }
 
         if (!result.success) {
-            throw new Error(result.error || 'Error al guardar la voz');
+            throw new Error(result.error || t('toast.voice_save_error'));
         }
 
-        showToast('Voz guardada exitosamente!', 'success');
+        showToast(t('toast.voice_saved'), 'success');
 
         // Clear the form
         voiceNameInput.value = '';
@@ -1951,7 +1959,7 @@ async function saveVoice() {
 
 // Delete a voice
 async function deleteVoice(voiceId) {
-    if (!confirm('¿Estás seguro de eliminar esta voz?')) {
+    if (!confirm(t('confirm.delete_voice'))) {
         return;
     }
 
@@ -1963,7 +1971,7 @@ async function deleteVoice(voiceId) {
         const result = await response.json();
 
         if (!response.ok) {
-            throw new Error(result.detail || 'Error al eliminar la voz');
+            throw new Error(result.detail || t('toast.voice_delete_error'));
         }
 
         // Clear selection if deleted voice was selected
@@ -1971,7 +1979,7 @@ async function deleteVoice(voiceId) {
             selectedVoiceId = null;
         }
 
-        showToast('Voz eliminada', 'success');
+        showToast(t('toast.voice_deleted'), 'success');
         loadSavedVoices();
 
     } catch (error) {
@@ -1996,7 +2004,8 @@ function truncateText(text, maxLength) {
 // Helper: Format date
 function formatDate(isoString) {
     const date = new Date(isoString);
-    return date.toLocaleDateString('es-ES', {
+    const locale = currentLanguage === 'es' ? 'es-ES' : 'en-US';
+    return date.toLocaleDateString(locale, {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',

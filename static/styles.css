@@ -47,6 +47,7 @@ body {
 .header {
     text-align: center;
     margin-bottom: 3rem;
+    position: relative;
 }
 
 .logo {
@@ -55,6 +56,28 @@ body {
     justify-content: center;
     gap: 0.75rem;
     margin-bottom: 0.5rem;
+}
+
+.lang-toggle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    background: var(--bg-primary);
+    border: 1.5px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+}
+
+.lang-toggle:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--bg-secondary);
 }
 
 .logo h1 {

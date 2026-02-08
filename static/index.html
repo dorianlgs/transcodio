@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -23,6 +23,7 @@
                 </svg>
                 <h1>Transcodio</h1>
             </div>
+            <button class="lang-toggle" id="langToggle">ES</button>
         </header>
 
         <!-- Main Content -->
@@ -34,13 +35,13 @@
                         <path d="M10 2C5.58 2 2 5.58 2 10C2 14.42 5.58 18 10 18C14.42 18 18 14.42 18 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                         <path d="M10 6V14M6 10H14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                     </svg>
-                    Transcribir
+                    <span data-i18n="mode.transcribe">Transcribe</span>
                 </button>
                 <button class="mode-btn" data-mode="voice-clone" id="voiceCloneModeBtn">
                     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                         <path d="M10 2V18M6 4V16M14 4V16M2 7V13M18 7V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                     </svg>
-                    Clonar Voz
+                    <span data-i18n="mode.voice_clone">Clone Voice</span>
                 </button>
                 <button class="mode-btn" data-mode="image-gen" id="imageGenModeBtn">
                     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -48,7 +49,7 @@
                         <circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.5"/>
                         <path d="M2 14L6 10L10 14L14 8L18 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
-                    Generar Imagen
+                    <span data-i18n="mode.image_gen">Generate Image</span>
                 </button>
             </div>
 
@@ -59,21 +60,21 @@
                         <circle cx="32" cy="32" r="30" stroke="currentColor" stroke-width="2" opacity="0.3"/>
                         <path d="M32 20 L32 44 M20 32 L44 32" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
                     </svg>
-                    <h2>Arrastra tu archivo de audio aquí</h2>
-                    <p>o haz clic para seleccionar</p>
-                    <p class="file-info">Soporta MP3, WAV, M4A, FLAC, OGG • Máx 100MB • Hasta 60 minutos</p>
+                    <h2 data-i18n="upload.title">Drag your audio file here</h2>
+                    <p data-i18n="upload.subtitle">or click to select</p>
+                    <p class="file-info" data-i18n="upload.file_info">Supports MP3, WAV, M4A, FLAC, OGG &bull; Max 100MB &bull; Up to 60 minutes</p>
                     <input type="file" id="fileInput" accept="audio/*" hidden>
                 </div>
                 <div class="upload-options">
                     <label class="checkbox-label">
                         <input type="checkbox" id="enableDiarization">
                         <span class="checkbox-custom"></span>
-                        <span class="checkbox-text">Identificar hablantes</span>
+                        <span class="checkbox-text" data-i18n="upload.identify_speakers">Identify speakers</span>
                     </label>
                     <label class="checkbox-label">
                         <input type="checkbox" id="enableMinutes">
                         <span class="checkbox-custom"></span>
-                        <span class="checkbox-text">Generar minuta de reunión</span>
+                        <span class="checkbox-text" data-i18n="upload.generate_minutes">Generate meeting minutes</span>
                     </label>
                 </div>
             </section>
@@ -82,8 +83,8 @@
             <section class="processing-section hidden" id="processingSection">
                 <div class="processing-card">
                     <div class="spinner"></div>
-                    <h3>Transcribiendo tu audio...</h3>
-                    <p class="processing-status" id="processingStatus">Subiendo archivo...</p>
+                    <h3 data-i18n="processing.title">Transcribing your audio...</h3>
+                    <p class="processing-status" id="processingStatus">Uploading file...</p>
                     <div class="progress-bar">
                         <div class="progress-fill" id="progressFill"></div>
                     </div>
@@ -93,7 +94,7 @@
             <!-- Results Section -->
             <section class="results-section hidden" id="resultsSection">
                 <div class="results-header">
-                    <h2>Resultados de Transcripción</h2>
+                    <h2 data-i18n="results.title">Transcription Results</h2>
                     <div class="results-actions">
                         <button class="btn btn-secondary" id="downloadBtn">
                             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -116,7 +117,7 @@
                             </svg>
                             VTT
                         </button>
-                        <button class="btn btn-primary" id="newTranscriptionBtn">Nueva Transcripción</button>
+                        <button class="btn btn-primary" id="newTranscriptionBtn" data-i18n="results.new_transcription">New Transcription</button>
                     </div>
                 </div>
 
@@ -144,8 +145,8 @@
                 <!-- Tabs -->
                 <div class="tabs-container">
                     <div class="tabs-header">
-                        <button class="tab-btn active" data-tab="transcription">Transcripción</button>
-                        <button class="tab-btn" data-tab="minutes" id="minutesTabBtn">Minuta</button>
+                        <button class="tab-btn active" data-tab="transcription" data-i18n="results.tab_transcription">Transcription</button>
+                        <button class="tab-btn" data-tab="minutes" id="minutesTabBtn" data-i18n="results.tab_minutes">Minutes</button>
                     </div>
 
                     <!-- Transcription Tab -->
@@ -159,38 +160,38 @@
                     <div class="tab-content" id="minutesTab">
                         <div class="minutes-section" id="minutesSection">
                     <div class="minutes-header">
-                        <h3>Minuta de Reunión</h3>
+                        <h3 data-i18n="minutes.title">Meeting Minutes</h3>
                         <button class="btn btn-secondary" id="downloadMinutesBtn">
                             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                                 <path d="M9 3 L9 12 M5 9 L9 13 L13 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                                 <path d="M3 15 L15 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                             </svg>
-                            Descargar Minuta
+                            <span data-i18n="minutes.download">Download Minutes</span>
                         </button>
                     </div>
                     <div class="minutes-loading hidden" id="minutesLoading">
                         <div class="spinner-small"></div>
-                        <span>Generando minuta de reunión...</span>
+                        <span data-i18n="minutes.loading">Generating meeting minutes...</span>
                     </div>
                     <div class="minutes-content" id="minutesContent">
                         <div class="minutes-block">
-                            <h4>Resumen Ejecutivo</h4>
+                            <h4 data-i18n="minutes.executive_summary">Executive Summary</h4>
                             <p id="minutesSummary"></p>
                         </div>
                         <div class="minutes-block">
-                            <h4>Puntos Clave Discutidos</h4>
+                            <h4 data-i18n="minutes.key_points">Key Discussion Points</h4>
                             <ul id="minutesKeyPoints"></ul>
                         </div>
                         <div class="minutes-block">
-                            <h4>Decisiones Tomadas</h4>
+                            <h4 data-i18n="minutes.decisions">Decisions Made</h4>
                             <ul id="minutesDecisions"></ul>
                         </div>
                         <div class="minutes-block">
-                            <h4>Acciones Pendientes</h4>
+                            <h4 data-i18n="minutes.action_items">Action Items</h4>
                             <ul id="minutesActions" class="action-items-list"></ul>
                         </div>
                         <div class="minutes-block">
-                            <h4>Participantes Mencionados</h4>
+                            <h4 data-i18n="minutes.participants">Participants Mentioned</h4>
                             <div id="minutesParticipants" class="participants-tags"></div>
                         </div>
                     </div>
@@ -202,32 +203,32 @@
             <!-- Voice Clone Section -->
             <section class="voice-clone-section hidden" id="voiceCloneSection">
                 <div class="voice-clone-card">
-                    <h2>Clonar Voz</h2>
-                    <p class="voice-clone-subtitle">Usa una voz guardada o crea una nueva</p>
+                    <h2 data-i18n="voice.title">Clone Voice</h2>
+                    <p class="voice-clone-subtitle" data-i18n="voice.subtitle">Use a saved voice or create a new one</p>
 
                     <!-- Voice Mode Tabs -->
                     <div class="voice-mode-tabs">
-                        <button class="voice-mode-tab active" data-mode="saved" id="savedVoiceModeTab">Voces Guardadas</button>
-                        <button class="voice-mode-tab" data-mode="new" id="newVoiceModeTab">Nueva Voz</button>
+                        <button class="voice-mode-tab active" data-mode="saved" id="savedVoiceModeTab" data-i18n="voice.saved_tab">Saved Voices</button>
+                        <button class="voice-mode-tab" data-mode="new" id="newVoiceModeTab" data-i18n="voice.new_tab">New Voice</button>
                     </div>
 
                     <!-- Saved Voices Mode -->
                     <div class="voice-mode-content active" id="savedVoiceModeContent">
                         <div class="saved-voices-container">
-                            <label class="form-label">Selecciona una voz</label>
+                            <label class="form-label" data-i18n="voice.select_voice">Select a voice</label>
                             <div class="saved-voices-list" id="savedVoicesList">
-                                <div class="loading-voices">Cargando voces...</div>
+                                <div class="loading-voices" data-i18n="voice.loading">Loading voices...</div>
                             </div>
                             <div class="no-voices-message hidden" id="noVoicesMessage">
-                                <p>No hay voces guardadas.</p>
-                                <button class="btn btn-secondary" id="goToNewVoiceBtn">Crear Nueva Voz</button>
+                                <p data-i18n="voice.no_voices">No saved voices.</p>
+                                <button class="btn btn-secondary" id="goToNewVoiceBtn" data-i18n="voice.create_new">Create New Voice</button>
                             </div>
                         </div>
 
                         <!-- Target Text for Saved Voice -->
                         <div class="voice-clone-form-group" id="savedVoiceTargetGroup">
-                            <label class="form-label" for="savedVoiceTargetText">Texto a Sintetizar (max. 50000 caracteres)</label>
-                            <textarea id="savedVoiceTargetText" class="form-textarea" placeholder="Escribe el texto que quieres generar con la voz seleccionada..." rows="4" maxlength="50000"></textarea>
+                            <label class="form-label" for="savedVoiceTargetText" data-i18n="voice.target_label">Text to Synthesize (max. 50000 characters)</label>
+                            <textarea id="savedVoiceTargetText" class="form-textarea" data-i18n-placeholder="voice.target_placeholder" placeholder="Write the text you want to generate with the selected voice..." rows="4" maxlength="50000"></textarea>
                             <div class="char-counter"><span id="savedVoiceCharCount">0</span> / 50000</div>
                         </div>
 
@@ -236,7 +237,7 @@
                             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                                 <path d="M10 2V18M6 4V16M14 4V16M2 7V13M18 7V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                             </svg>
-                            Sintetizar
+                            <span data-i18n="voice.synthesize">Synthesize</span>
                         </button>
                     </div>
 
@@ -244,10 +245,10 @@
                     <div class="voice-mode-content" id="newVoiceModeContent">
                     <!-- Reference Audio -->
                     <div class="voice-clone-form-group">
-                        <label class="form-label">Audio de Referencia (3-30 segundos)</label>
+                        <label class="form-label" data-i18n="voice.ref_audio_label">Reference Audio (3-30 seconds)</label>
                         <div class="ref-audio-tabs">
-                            <button class="ref-audio-tab active" data-tab="upload" id="refUploadTab">Subir Archivo</button>
-                            <button class="ref-audio-tab" data-tab="record" id="refRecordTab">Grabar</button>
+                            <button class="ref-audio-tab active" data-tab="upload" id="refUploadTab" data-i18n="voice.upload_tab">Upload File</button>
+                            <button class="ref-audio-tab" data-tab="record" id="refRecordTab" data-i18n="voice.record_tab">Record</button>
                         </div>
 
                         <!-- Upload Tab -->
@@ -256,12 +257,12 @@
                                 <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
                                     <path d="M20 8V32M8 20H32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                                 </svg>
-                                <span>Arrastra o haz clic para subir</span>
+                                <span data-i18n="voice.upload_drag">Drag or click to upload</span>
                                 <input type="file" id="refFileInput" accept="audio/*" hidden>
                             </div>
                             <div class="ref-audio-preview hidden" id="refAudioPreview">
                                 <audio id="refAudioPlayer" controls></audio>
-                                <button class="btn-icon" id="removeRefAudio" title="Eliminar">
+                                <button class="btn-icon" id="removeRefAudio" data-i18n-title="misc.remove" title="Remove">
                                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                                         <path d="M4 4L14 14M4 14L14 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                                     </svg>
@@ -282,7 +283,7 @@
                             </div>
                             <div class="recorded-preview hidden" id="recordedPreview">
                                 <audio id="recordedAudioPlayer" controls></audio>
-                                <button class="btn-icon" id="removeRecordedAudio" title="Eliminar">
+                                <button class="btn-icon" id="removeRecordedAudio" data-i18n-title="misc.remove" title="Remove">
                                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                                         <path d="M4 4L14 14M4 14L14 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                                     </svg>
@@ -293,47 +294,47 @@
 
                     <!-- Reference Text -->
                     <div class="voice-clone-form-group">
-                        <label class="form-label" for="refTextInput">Transcripción del Audio de Referencia</label>
-                        <textarea id="refTextInput" class="form-textarea" placeholder="Escribe exactamente lo que dice el audio de referencia..." rows="3"></textarea>
+                        <label class="form-label" for="refTextInput" data-i18n="voice.ref_text_label">Reference Audio Transcription</label>
+                        <textarea id="refTextInput" class="form-textarea" data-i18n-placeholder="voice.ref_text_placeholder" placeholder="Write exactly what the reference audio says..." rows="3"></textarea>
                     </div>
 
                     <!-- Target Text -->
                     <div class="voice-clone-form-group">
-                        <label class="form-label" for="targetTextInput">Texto a Sintetizar (max. 50000 caracteres)</label>
-                        <textarea id="targetTextInput" class="form-textarea" placeholder="Escribe el texto que quieres generar con la voz clonada..." rows="4" maxlength="50000"></textarea>
+                        <label class="form-label" for="targetTextInput" data-i18n="voice.new_target_label">Text to Synthesize (max. 50000 characters)</label>
+                        <textarea id="targetTextInput" class="form-textarea" data-i18n-placeholder="voice.new_target_placeholder" placeholder="Write the text you want to generate with the cloned voice..." rows="4" maxlength="50000"></textarea>
                         <div class="char-counter"><span id="charCount">0</span> / 50000</div>
                     </div>
 
                     <!-- Model Selector -->
                     <div class="voice-clone-form-group">
-                        <label class="form-label" for="ttsModelSelect">Modelo TTS</label>
+                        <label class="form-label" for="ttsModelSelect" data-i18n="voice.model_label">TTS Model</label>
                         <select id="ttsModelSelect" class="form-select">
-                            <option value="qwen" selected>Qwen3-TTS (Rápido, 1.7B)</option>
+                            <option value="qwen" selected data-i18n="voice.model_qwen">Qwen3-TTS (Fast, 1.7B)</option>
                         </select>
-                        <p class="form-hint" id="modelHint">Rápido y buena calidad para la mayoría de casos</p>
+                        <p class="form-hint" id="modelHint" data-i18n="voice.model_hint">Fast and good quality for most cases</p>
                     </div>
 
                     <!-- Language Selector -->
                     <div class="voice-clone-form-group">
-                        <label class="form-label" for="languageSelect">Idioma</label>
+                        <label class="form-label" for="languageSelect" data-i18n="voice.language_label">Language</label>
                         <select id="languageSelect" class="form-select">
-                            <option value="Spanish" selected>Español</option>
-                            <option value="English">Inglés</option>
-                            <option value="Chinese">Chino</option>
-                            <option value="Japanese">Japonés</option>
-                            <option value="Korean">Coreano</option>
-                            <option value="German">Alemán</option>
-                            <option value="French">Francés</option>
-                            <option value="Russian">Ruso</option>
-                            <option value="Portuguese">Portugués</option>
-                            <option value="Italian">Italiano</option>
+                            <option value="Spanish" data-i18n="lang.spanish">Spanish</option>
+                            <option value="English" data-i18n="lang.english">English</option>
+                            <option value="Chinese" data-i18n="lang.chinese">Chinese</option>
+                            <option value="Japanese" data-i18n="lang.japanese">Japanese</option>
+                            <option value="Korean" data-i18n="lang.korean">Korean</option>
+                            <option value="German" data-i18n="lang.german">German</option>
+                            <option value="French" data-i18n="lang.french">French</option>
+                            <option value="Russian" data-i18n="lang.russian">Russian</option>
+                            <option value="Portuguese" data-i18n="lang.portuguese">Portuguese</option>
+                            <option value="Italian" data-i18n="lang.italian">Italian</option>
                         </select>
                     </div>
 
                     <!-- Voice Name (for saving) -->
                     <div class="voice-clone-form-group">
-                        <label class="form-label" for="voiceNameInput">Nombre de la Voz (para guardar)</label>
-                        <input type="text" id="voiceNameInput" class="form-input" placeholder="Ej: Mi voz, Voz de Juan..." maxlength="50">
+                        <label class="form-label" for="voiceNameInput" data-i18n="voice.name_label">Voice Name (for saving)</label>
+                        <input type="text" id="voiceNameInput" class="form-input" data-i18n-placeholder="voice.name_placeholder" placeholder="E.g.: My voice, John's voice..." maxlength="50">
                     </div>
 
                     <!-- Generate Button -->
@@ -342,7 +343,7 @@
                             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                                 <path d="M10 2V18M6 4V16M14 4V16M2 7V13M18 7V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                             </svg>
-                            Generar Voz
+                            <span data-i18n="voice.generate">Generate Voice</span>
                         </button>
                         <button class="btn btn-secondary" id="saveVoiceBtn">
                             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -350,7 +351,7 @@
                                 <path d="M7 3V7H13V3" stroke="currentColor" stroke-width="1.5"/>
                                 <path d="M10 10V14M8 12H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                             </svg>
-                            Guardar Voz
+                            <span data-i18n="voice.save">Save Voice</span>
                         </button>
                     </div>
                     </div><!-- End New Voice Mode -->
@@ -361,24 +362,24 @@
             <section class="voice-clone-processing hidden" id="voiceCloneProcessing">
                 <div class="processing-card">
                     <div class="spinner"></div>
-                    <h3>Generando voz clonada...</h3>
-                    <p class="processing-status">Esto puede tardar unos segundos</p>
+                    <h3 data-i18n="voice.processing_title">Generating cloned voice...</h3>
+                    <p class="processing-status" data-i18n="voice.processing_subtitle">This may take a few seconds</p>
                 </div>
             </section>
 
             <!-- Voice Clone Results Section -->
             <section class="voice-clone-results hidden" id="voiceCloneResults">
                 <div class="results-header">
-                    <h2>Voz Generada</h2>
+                    <h2 data-i18n="voice.result_title">Generated Voice</h2>
                     <div class="results-actions">
                         <button class="btn btn-secondary" id="downloadVoiceBtn">
                             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                                 <path d="M9 3 L9 12 M5 9 L9 13 L13 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                                 <path d="M3 15 L15 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                             </svg>
-                            Descargar WAV
+                            <span data-i18n="voice.download_wav">Download WAV</span>
                         </button>
-                        <button class="btn btn-primary" id="newVoiceCloneBtn">Nueva Clonación</button>
+                        <button class="btn btn-primary" id="newVoiceCloneBtn" data-i18n="voice.new_clone">New Clone</button>
                     </div>
                 </div>
 
@@ -401,22 +402,22 @@
             <!-- Image Generation Section -->
             <section class="image-gen-section hidden" id="imageGenSection">
                 <div class="image-gen-card">
-                    <h2>Generar Imagen</h2>
-                    <p class="image-gen-subtitle">Describe la imagen que deseas crear con texto</p>
+                    <h2 data-i18n="image.title">Generate Image</h2>
+                    <p class="image-gen-subtitle" data-i18n="image.subtitle">Describe the image you want to create with text</p>
 
                     <!-- Prompt Input -->
                     <div class="image-gen-form-group">
-                        <label class="form-label" for="imagePromptInput">Descripción de la imagen (max. 500 caracteres)</label>
-                        <textarea id="imagePromptInput" class="form-textarea" placeholder="Describe la imagen que quieres generar. Por ejemplo: Un paisaje futurista con rascacielos de cristal al atardecer..." rows="4" maxlength="500"></textarea>
+                        <label class="form-label" for="imagePromptInput" data-i18n="image.prompt_label">Image description (max. 500 characters)</label>
+                        <textarea id="imagePromptInput" class="form-textarea" data-i18n-placeholder="image.prompt_placeholder" placeholder="Describe the image you want to generate. For example: A futuristic landscape with crystal skyscrapers at sunset..." rows="4" maxlength="500"></textarea>
                         <div class="char-counter"><span id="imageCharCount">0</span> / 500</div>
                     </div>
 
                     <!-- Dimension Selectors -->
                     <div class="image-gen-form-group">
-                        <label class="form-label">Dimensiones</label>
+                        <label class="form-label" data-i18n="image.dimensions">Dimensions</label>
                         <div class="dimension-selectors">
                             <div class="dimension-group">
-                                <label for="imageWidthSelect">Ancho</label>
+                                <label for="imageWidthSelect" data-i18n="image.width">Width</label>
                                 <select id="imageWidthSelect" class="form-select">
                                     <option value="512">512 px</option>
                                     <option value="768" selected>768 px</option>
@@ -425,7 +426,7 @@
                             </div>
                             <span class="dimension-separator">x</span>
                             <div class="dimension-group">
-                                <label for="imageHeightSelect">Alto</label>
+                                <label for="imageHeightSelect" data-i18n="image.height">Height</label>
                                 <select id="imageHeightSelect" class="form-select">
                                     <option value="512">512 px</option>
                                     <option value="768" selected>768 px</option>
@@ -442,7 +443,7 @@
                             <circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.5"/>
                             <path d="M2 14L6 10L10 14L14 8L18 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
-                        Generar Imagen
+                        <span data-i18n="image.generate">Generate Image</span>
                     </button>
                 </div>
             </section>
@@ -451,30 +452,30 @@
             <section class="image-gen-processing hidden" id="imageGenProcessing">
                 <div class="processing-card">
                     <div class="spinner"></div>
-                    <h3>Generando imagen...</h3>
-                    <p class="processing-status">Esto puede tardar unos segundos</p>
+                    <h3 data-i18n="image.processing_title">Generating image...</h3>
+                    <p class="processing-status" data-i18n="image.processing_subtitle">This may take a few seconds</p>
                 </div>
             </section>
 
             <!-- Image Generation Results Section -->
             <section class="image-gen-results hidden" id="imageGenResults">
                 <div class="results-header">
-                    <h2>Imagen Generada</h2>
+                    <h2 data-i18n="image.result_title">Generated Image</h2>
                     <div class="results-actions">
                         <button class="btn btn-secondary" id="downloadImageBtn">
                             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                                 <path d="M9 3 L9 12 M5 9 L9 13 L13 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                                 <path d="M3 15 L15 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                             </svg>
-                            Descargar PNG
+                            <span data-i18n="image.download_png">Download PNG</span>
                         </button>
-                        <button class="btn btn-primary" id="newImageGenBtn">Nueva Imagen</button>
+                        <button class="btn btn-primary" id="newImageGenBtn" data-i18n="image.new_image">New Image</button>
                     </div>
                 </div>
 
                 <div class="image-result-card">
                     <div class="image-preview-container">
-                        <img id="generatedImagePreview" alt="Imagen generada" />
+                        <img id="generatedImagePreview" data-i18n-alt="image.alt" alt="Generated image" />
                     </div>
                     <div class="image-result-info">
                         <span class="metadata-item">
@@ -490,7 +491,7 @@
 
         <!-- Footer -->
         <footer class="footer">
-            <p>Desarrollado por <a href="https://cifu.dev" target="_blank" rel="noopener noreferrer">cifu.dev</a></p>
+            <p><span data-i18n="footer.developed_by">Developed by</span> <a href="https://cifu.dev" target="_blank" rel="noopener noreferrer">cifu.dev</a></p>
         </footer>
     </div>
 
