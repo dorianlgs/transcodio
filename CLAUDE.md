@@ -242,6 +242,7 @@ py -m modal app logs transcodio-app
 uv run uvicorn api.main:app --reload
 
 
+
 # Alternative: run directly
 uv run python api/main.py
 ```
